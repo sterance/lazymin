@@ -1,0 +1,19 @@
+# rust
+/target/
+
+# local editor
+/.cursor/
+.vscode/
+.idea/
+
+# env/secrets
+.env
+.env.*
+!.env.example
+
+# project runtime data
+/save/
+
+# os files
+.DS_Store
+Thumbs.db
