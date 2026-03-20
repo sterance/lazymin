@@ -2,11 +2,12 @@ mod layout;
 
 use ratatui::layout::{Alignment, Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Text};
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::{App, OutputStyle, TerminalLine};
+use crate::terminal::highlight::{classify_input, InputHighlight};
 
 const GREEN: Color = Color::Green;
 
@@ -52,8 +53,10 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
     frame.render_widget(resources, areas.resources);
 
     let terminal_content = terminal_text(app);
+    let terminal_scroll = terminal_scroll_offset(app, areas.terminal.height);
     let terminal = Paragraph::new(terminal_content)
         .style(Style::default().fg(GREEN))
+        .scroll((terminal_scroll, 0))
         .block(green_border());
     frame.render_widget(terminal, areas.terminal);
 
@@ -74,10 +77,37 @@ fn terminal_text(app: &App) -> Text<'_> {
         .map(render_terminal_line)
         .collect();
 
-    let prompt = format!("$ {}_", app.terminal.input);
-    lines.push(Line::styled(prompt, Style::default().fg(GREEN)));
+    let prompt_input = app.terminal.input.clone();
+    let input_highlight = classify_input(&prompt_input);
+    let input_style = match input_highlight {
+        InputHighlight::Ready => Style::default()
+            .fg(GREEN)
+            .add_modifier(Modifier::BOLD),
+        InputHighlight::PartialMatch => Style::default().fg(GREEN),
+        InputHighlight::Unknown => Style::default().fg(GREEN),
+    };
+
+    let cursor_style = Style::default()
+        .fg(GREEN)
+        .add_modifier(Modifier::DIM);
+
+    lines.push(Line::from(vec![
+        Span::styled("$ ", Style::default().fg(GREEN)),
+        Span::styled(prompt_input, input_style),
+        Span::styled("_", cursor_style),
+    ]));
 
     Text::from(lines)
+}
+
+fn terminal_scroll_offset(app: &App, terminal_height: u16) -> u16 {
+    let visible_lines = terminal_height.saturating_sub(2) as usize;
+    if visible_lines == 0 {
+        return 0;
+    }
+
+    let total_lines = app.terminal.lines.len() + 1;
+    total_lines.saturating_sub(visible_lines) as u16
 }
 
 fn render_terminal_line(line: &TerminalLine) -> Line<'static> {
