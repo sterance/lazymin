@@ -1,11 +1,13 @@
 use std::collections::VecDeque;
 
 use crate::input::InputEvent;
+use crate::game::{state::GameState, tick};
 
 const MAX_TERMINAL_LINES: usize = 500;
 const MAX_HISTORY_ENTRIES: usize = 200;
 
 pub struct App {
+    pub game: GameState,
     pub terminal: TerminalState,
     pub should_quit: bool,
 }
@@ -16,6 +18,7 @@ impl App {
         terminal.push_output("system initialized. good luck.", OutputStyle::System);
 
         Self {
+            game: GameState::new(),
             terminal,
             should_quit: false,
         }
@@ -25,6 +28,10 @@ impl App {
         for event in events {
             self.handle_input(event);
         }
+    }
+
+    pub fn tick(&mut self, delta_secs: f64) {
+        tick::tick(&mut self.game, delta_secs);
     }
 
     fn handle_input(&mut self, event: &InputEvent) {

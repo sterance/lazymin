@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use lazymin_core::app::App;
@@ -11,6 +11,7 @@ type AppResult<T> = Result<T, Box<dyn Error>>;
 fn main() -> AppResult<()> {
     let mut terminal = ratatui::init();
     let mut app = App::new();
+    let mut last_tick = Instant::now();
 
     loop {
         terminal.draw(|frame| ui::draw(frame, &app))?;
@@ -34,6 +35,11 @@ fn main() -> AppResult<()> {
         if !events.is_empty() {
             app.update(&events);
         }
+
+        let now = Instant::now();
+        let delta_secs = now.duration_since(last_tick).as_secs_f64();
+        last_tick = now;
+        app.tick(delta_secs);
 
         if app.should_quit {
             break;

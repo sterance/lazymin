@@ -19,7 +19,7 @@ fn cmd_help(_: &str, app: &mut App) -> Vec<TerminalLine> {
 
     let cmds = command_registry();
     for cmd in cmds {
-        if (cmd.locked)(app) {
+        if (cmd.locked)(app) || cmd.name == "harvest.sh" {
             continue;
         }
         out.push(TerminalLine::Output {
@@ -32,16 +32,33 @@ fn cmd_help(_: &str, app: &mut App) -> Vec<TerminalLine> {
     out
 }
 
+fn cmd_harvest(_: &str, app: &mut App) -> Vec<TerminalLine> {
+    let yield_cycles = 1.0;
+    app.game.cycles += yield_cycles;
+    app.game.total_cycles_earned += yield_cycles;
+    app.game.manual_runs += 1;
+
+    vec![
+        TerminalLine::Output {
+            text: "harvested 1 cycles".to_owned(),
+            style: OutputStyle::Success,
+        },
+        TerminalLine::Blank,
+    ]
+}
+
 fn cmd_ls(_: &str, app: &mut App) -> Vec<TerminalLine> {
+    let hidden_in_ls = ["help", "clear", "ls", "exit"];
     let names: Vec<&str> = command_registry()
         .iter()
         .filter(|cmd| !(cmd.locked)(app))
+        .filter(|cmd| !hidden_in_ls.contains(&cmd.name))
         .map(|cmd| cmd.name)
         .collect();
 
     let listing = names
         .into_iter()
-        .map(|name| format!("./{name}"))
+        .map(str::to_owned)
         .collect::<Vec<_>>()
         .join("  ");
 
@@ -65,6 +82,12 @@ fn cmd_exit(_: &str, app: &mut App) -> Vec<TerminalLine> {
 }
 
 static COMMANDS: &[CommandDef] = &[
+    CommandDef {
+        name: "harvest.sh",
+        description: "run the harvest script manually",
+        locked: always_unlocked,
+        execute: cmd_harvest,
+    },
     CommandDef {
         name: "help",
         description: "list currently unlocked commands",

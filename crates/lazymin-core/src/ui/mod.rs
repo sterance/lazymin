@@ -33,14 +33,14 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
     frame.render_widget(title, header_chunks[0]);
 
     let uptime = Paragraph::new(Text::styled(
-        "uptime: 00:00:00",
+        format!("uptime: {}", format_uptime(app.game.uptime_secs)),
         Style::default().fg(GREEN).add_modifier(Modifier::DIM),
     ))
     .alignment(Alignment::Right);
     frame.render_widget(uptime, header_chunks[1]);
 
     let resources_lines = vec![
-        Line::raw("cycles   0"),
+        Line::raw(format!("cycles   {:.0}  (+0.0/s)", app.game.cycles)),
         Line::raw("mem      0 MB / 0 MB"),
         Line::raw("disk     0 MB / 0 MB"),
         Line::raw("bw       0 Mbps / 0 Mbps"),
@@ -67,6 +67,14 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
     .style(Style::default().fg(GREEN))
     .block(green_border().title("LOG"));
     frame.render_widget(log, areas.log);
+}
+
+fn format_uptime(seconds: f64) -> String {
+    let total = seconds.max(0.0).floor() as u64;
+    let hours = total / 3600;
+    let minutes = (total % 3600) / 60;
+    let secs = total % 60;
+    format!("{hours:02}:{minutes:02}:{secs:02}")
 }
 
 fn terminal_text(app: &App) -> Text<'_> {
