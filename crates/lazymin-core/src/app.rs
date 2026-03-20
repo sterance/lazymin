@@ -46,8 +46,7 @@ impl App {
                 self.terminal.commit_unknown(&input);
             }
             InputEvent::CtrlC => self.terminal.cancel_input(),
-            InputEvent::CtrlL => self.terminal.clear_lines(),
-            InputEvent::Up | InputEvent::Down | InputEvent::Tab => {}
+            InputEvent::Up | InputEvent::Down => {}
         }
     }
 }

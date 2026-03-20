@@ -5,7 +5,5 @@ pub enum InputEvent {
     Enter,
     Up,
     Down,
-    Tab,
     CtrlC,
-    CtrlL,
 }

@@ -1,23 +1,42 @@
 mod layout;
 
-use ratatui::layout::Alignment;
-use ratatui::style::{Color, Style};
-use ratatui::text::{Line, Span, Text};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::{App, OutputStyle, TerminalLine};
 
+const GREEN: Color = Color::Green;
+
+fn green_border() -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(GREEN))
+}
+
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
     let areas = layout::compute(frame.area());
 
-    let header = Line::from(vec![
-        Span::raw("lazymin v0.1.0"),
-        Span::raw(" "),
-        Span::styled("uptime: 00:00:00", Style::default().fg(Color::Gray)),
-    ]);
-    let header_widget = Paragraph::new(header).alignment(Alignment::Left);
-    frame.render_widget(header_widget, areas.header);
+    let header_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(30), Constraint::Fill(1)])
+        .split(areas.header);
+
+    let title = Paragraph::new(Text::styled(
+        "lazymin v0.1.0",
+        Style::default().fg(GREEN),
+    ))
+    .alignment(Alignment::Left);
+    frame.render_widget(title, header_chunks[0]);
+
+    let uptime = Paragraph::new(Text::styled(
+        "uptime: 00:00:00",
+        Style::default().fg(GREEN).add_modifier(Modifier::DIM),
+    ))
+    .alignment(Alignment::Right);
+    frame.render_widget(uptime, header_chunks[1]);
 
     let resources_lines = vec![
         Line::raw("cycles   0"),
@@ -28,15 +47,22 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
         Line::raw("entropy  0.00 ent/s"),
     ];
     let resources = Paragraph::new(resources_lines)
-        .block(Block::default().borders(Borders::ALL).title("RESOURCES"));
+        .style(Style::default().fg(GREEN))
+        .block(green_border().title("RESOURCES"));
     frame.render_widget(resources, areas.resources);
 
     let terminal_content = terminal_text(app);
-    let terminal = Paragraph::new(terminal_content).block(Block::default().borders(Borders::ALL));
+    let terminal = Paragraph::new(terminal_content)
+        .style(Style::default().fg(GREEN))
+        .block(green_border());
     frame.render_widget(terminal, areas.terminal);
 
-    let log = Paragraph::new(Text::from("system initialized. good luck."))
-        .block(Block::default().borders(Borders::ALL).title("LOG"));
+    let log = Paragraph::new(Text::styled(
+        "system initialized. good luck.",
+        Style::default().fg(GREEN).add_modifier(Modifier::DIM),
+    ))
+    .style(Style::default().fg(GREEN))
+    .block(green_border().title("LOG"));
     frame.render_widget(log, areas.log);
 }
 
@@ -49,14 +75,16 @@ fn terminal_text(app: &App) -> Text<'_> {
         .collect();
 
     let prompt = format!("$ {}_", app.terminal.input);
-    lines.push(Line::raw(prompt));
+    lines.push(Line::styled(prompt, Style::default().fg(GREEN)));
 
     Text::from(lines)
 }
 
 fn render_terminal_line(line: &TerminalLine) -> Line<'static> {
     match line {
-        TerminalLine::Input { raw } => Line::raw(format!("$ {raw}")),
+        TerminalLine::Input { raw } => {
+            Line::styled(format!("$ {raw}"), Style::default().fg(GREEN))
+        }
         TerminalLine::Output { text, style } => {
             Line::styled(text.clone(), output_style(*style))
         }
@@ -66,10 +94,13 @@ fn render_terminal_line(line: &TerminalLine) -> Line<'static> {
 
 fn output_style(style: OutputStyle) -> Style {
     match style {
-        OutputStyle::Normal => Style::default().fg(Color::White),
-        OutputStyle::Success => Style::default().fg(Color::Green),
+        OutputStyle::Normal => Style::default().fg(GREEN),
+        OutputStyle::Success => Style::default()
+            .fg(GREEN)
+            .bg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD),
         OutputStyle::Error => Style::default().fg(Color::Red),
         OutputStyle::Info => Style::default().fg(Color::Cyan),
-        OutputStyle::System => Style::default().fg(Color::Gray),
+        OutputStyle::System => Style::default().fg(GREEN).add_modifier(Modifier::DIM),
     }
 }
