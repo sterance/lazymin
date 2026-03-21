@@ -1,5 +1,6 @@
 use crate::app::{App, OutputStyle, TerminalLine};
 use crate::format::fmt_cycles;
+use crate::game::resources::ResourceKind;
 
 use super::commands::{command_registry, CommandDef};
 
@@ -71,14 +72,15 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
 
     if let Some(cost_fn) = cmd.cost {
         let price = cost_fn(app);
-        if app.game.cycles < price {
+        let cycles = app.game.resources.get(ResourceKind::Cycles);
+        if cycles < price {
             return RunResult {
                 lines: vec![
                     TerminalLine::Output {
                         text: format!(
                             "insufficient cycles (need {}, have {})",
                             fmt_cycles(price),
-                            fmt_cycles(app.game.cycles)
+                            fmt_cycles(cycles)
                         ),
                         style: OutputStyle::Error,
                     },

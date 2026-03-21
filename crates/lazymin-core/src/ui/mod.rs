@@ -3,10 +3,12 @@ mod layout;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::{App, OutputStyle, TerminalLine};
+use crate::format::{fmt_cycles, fmt_cycles_rate, fmt_mb};
+use crate::game::resources::{total_hardware_watts, total_reserved_ram, ResourceKind};
 use crate::game::tick;
 use crate::terminal::highlight::{classify_input, InputHighlight};
 
@@ -41,33 +43,62 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
     frame.render_widget(uptime, header_chunks[1]);
 
     let cycles_per_second = tick::cycles_per_second(&app.game);
+    let cycles = app.game.resources.get(ResourceKind::Cycles);
+    let ram_used = total_reserved_ram(&app.game.producers);
+    let ram_cap = app.game.resources.cap(ResourceKind::Ram).unwrap_or(0.0);
+    let disk_used = app.game.resources.get(ResourceKind::Disk);
+    let disk_cap = app.game.resources.cap(ResourceKind::Disk).unwrap_or(0.0);
+    let bw_used = app.game.resources.get(ResourceKind::Bandwidth);
+    let bw_cap = app.game.resources.cap(ResourceKind::Bandwidth).unwrap_or(0.0);
+    let watts_used = total_hardware_watts(&app.game.capacity_purchases);
+    let watts_cap = app.game.resources.cap(ResourceKind::Watts).unwrap_or(0.0);
+    let entropy = app.game.resources.get(ResourceKind::Entropy);
+    let entropy_rate = app
+        .game
+        .resources
+        .rates
+        .get(&ResourceKind::Entropy)
+        .copied()
+        .unwrap_or(0.0);
     let resources_lines = vec![
         Line::raw(format!(
-            "cycles   {:.0}  (+{cycles_per_second:.1}/s)",
-            app.game.cycles
+            "cycles   {}  (+{}/s)",
+            fmt_cycles(cycles),
+            fmt_cycles_rate(cycles_per_second)
         )),
-        Line::raw("mem      0 MB / 0 MB"),
-        Line::raw("disk     0 MB / 0 MB"),
-        Line::raw("bw       0 Mbps / 0 Mbps"),
-        Line::raw("power    0 W / 0 W"),
-        Line::raw("entropy  0.00 ent/s"),
+        Line::raw(format!("mem      {} / {}", fmt_mb(ram_used), fmt_mb(ram_cap))),
+        Line::raw(format!("disk     {} / {}", fmt_mb(disk_used), fmt_mb(disk_cap))),
+        Line::raw(format!("bw       {:.0} / {:.0} Mbps", bw_used, bw_cap)),
+        Line::raw(format!("power    {:.1} W / {:.1} W", watts_used, watts_cap)),
+        Line::raw(format!("entropy  {:.2}  (+{entropy_rate:.2}/s)", entropy)),
     ];
     let resources = Paragraph::new(resources_lines)
         .style(Style::default().fg(GREEN))
         .block(green_border().title("RESOURCES"));
     frame.render_widget(resources, areas.resources);
 
+    let terminal_inner_w = areas.terminal.width.saturating_sub(2).max(1);
     let terminal_content = terminal_text(app);
-    let terminal_scroll = terminal_scroll_offset(app, areas.terminal.height);
+    let terminal_wrapped_lines = Paragraph::new(terminal_content.clone())
+        .wrap(Wrap { trim: true })
+        .line_count(terminal_inner_w);
+    let terminal_scroll = scroll_offset_for_lines(terminal_wrapped_lines, areas.terminal.height);
     let terminal = Paragraph::new(terminal_content)
         .style(Style::default().fg(GREEN))
+        .wrap(Wrap { trim: true })
         .scroll((terminal_scroll, 0))
         .block(green_border());
     frame.render_widget(terminal, areas.terminal);
 
-    let log_scroll = log_scroll_offset(app, areas.log.height);
-    let log = Paragraph::new(log_text(app))
+    let log_inner_w = areas.log.width.saturating_sub(2).max(1);
+    let log_content = log_text(app);
+    let log_wrapped_lines = Paragraph::new(log_content.clone())
+        .wrap(Wrap { trim: true })
+        .line_count(log_inner_w);
+    let log_scroll = scroll_offset_for_lines(log_wrapped_lines, areas.log.height);
+    let log = Paragraph::new(log_content)
     .style(Style::default().fg(GREEN))
+    .wrap(Wrap { trim: true })
     .scroll((log_scroll, 0))
     .block(green_border().title("LOG"));
     frame.render_widget(log, areas.log);
@@ -116,23 +147,14 @@ fn terminal_text(app: &App) -> Text<'_> {
     Text::from(lines)
 }
 
-fn terminal_scroll_offset(app: &App, terminal_height: u16) -> u16 {
-    let visible_lines = terminal_height.saturating_sub(2) as usize;
+fn scroll_offset_for_lines(total_wrapped_lines: usize, area_height: u16) -> u16 {
+    let visible_lines = area_height.saturating_sub(2) as usize;
     if visible_lines == 0 {
         return 0;
     }
 
-    let total_lines = app.terminal.lines.len() + 1;
-    total_lines.saturating_sub(visible_lines) as u16
-}
-
-fn log_scroll_offset(app: &App, log_height: u16) -> u16 {
-    let visible_lines = log_height.saturating_sub(2) as usize;
-    if visible_lines == 0 {
-        return 0;
-    }
-
-    app.game.log.len().saturating_sub(visible_lines) as u16
+    total_wrapped_lines
+        .saturating_sub(visible_lines) as u16
 }
 
 fn log_text(app: &App) -> Text<'_> {

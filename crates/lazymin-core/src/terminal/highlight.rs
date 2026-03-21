@@ -1,4 +1,5 @@
 use crate::app::App;
+use crate::game::resources::ResourceKind;
 
 use super::commands::command_registry;
 
@@ -23,7 +24,7 @@ pub fn classify_input(input: &str, app: &App) -> InputHighlight {
                 return InputHighlight::LockedCommand;
             }
             if let Some(cost_fn) = cmd.cost {
-                if app.game.cycles < cost_fn(app) {
+                if app.game.resources.get(ResourceKind::Cycles) < cost_fn(app) {
                     return InputHighlight::Unaffordable;
                 }
             }

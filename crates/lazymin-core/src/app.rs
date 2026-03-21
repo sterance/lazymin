@@ -24,6 +24,15 @@ impl App {
         }
     }
 
+    #[cfg(feature = "dev-presets")]
+    pub fn with_game_state(game: GameState) -> Self {
+        Self {
+            game,
+            terminal: TerminalState::new(),
+            should_quit: false,
+        }
+    }
+
     pub fn update(&mut self, events: &[InputEvent]) {
         for event in events {
             self.handle_input(event);

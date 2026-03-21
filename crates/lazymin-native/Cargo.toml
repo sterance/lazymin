@@ -3,6 +3,10 @@ name = "lazymin-native"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+dev-presets = ["lazymin-core/dev-presets"]
+
 [dependencies]
 lazymin-core = { path = "../lazymin-core" }
 ratatui = { version = "0.30", features = ["crossterm"] }
