@@ -1,7 +1,10 @@
 use std::collections::VecDeque;
 
+use crate::game::log::push_log;
+use crate::game::producers::ProducerKind;
+use crate::game::state::{GameState, HINT_FATIGUE_THRESHOLD, HINT_TIP_DELAY_SECS};
+use crate::game::tick;
 use crate::input::InputEvent;
-use crate::game::{state::GameState, tick};
 
 const MAX_TERMINAL_LINES: usize = 500;
 const MAX_HISTORY_ENTRIES: usize = 200;
@@ -14,12 +17,9 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
-        let mut terminal = TerminalState::new();
-        terminal.push_output("system initialized. good luck.", OutputStyle::System);
-
         Self {
             game: GameState::new(),
-            terminal,
+            terminal: TerminalState::new(),
             should_quit: false,
         }
     }
@@ -32,6 +32,44 @@ impl App {
 
     pub fn tick(&mut self, delta_secs: f64) {
         tick::tick(&mut self.game, delta_secs);
+        self.check_hints();
+    }
+
+    fn check_hints(&mut self) {
+        let owns_shell_script = self
+            .game
+            .producers
+            .get(&ProducerKind::ShellScript)
+            .copied()
+            .unwrap_or(0)
+            > 0;
+
+        if owns_shell_script {
+            return;
+        }
+
+        if !self.game.hint_fatigue_shown && self.game.total_cycles_earned >= HINT_FATIGUE_THRESHOLD {
+            push_log(
+                &mut self.game.log,
+                self.game.uptime_secs,
+                "this is getting tedious. there has to be a better way...",
+            );
+            self.game.hint_fatigue_shown = true;
+            self.game.hint_fatigue_fired_at = Some(self.game.uptime_secs);
+        }
+
+        if !self.game.hint_tip_shown {
+            if let Some(fired_at) = self.game.hint_fatigue_fired_at {
+                if self.game.uptime_secs >= fired_at + HINT_TIP_DELAY_SECS {
+                    push_log(
+                        &mut self.game.log,
+                        self.game.uptime_secs,
+                        "# tip: append & to a command to run it in the background",
+                    );
+                    self.game.hint_tip_shown = true;
+                }
+            }
+        }
     }
 
     fn handle_input(&mut self, event: &InputEvent) {
@@ -48,12 +86,14 @@ impl App {
                 self.terminal.history_idx = None;
                 self.terminal.saved_input = None;
 
-                let output_lines = crate::terminal::execute::run(&input, self);
+                let run_result = crate::terminal::execute::run(&input, self);
 
-                self.terminal.lines.push_back(TerminalLine::Input {
-                    raw: input,
-                });
-                self.terminal.lines.extend(output_lines);
+                if run_result.echo_input {
+                    self.terminal
+                        .lines
+                        .push_back(TerminalLine::Input { raw: input });
+                }
+                self.terminal.lines.extend(run_result.lines);
                 self.terminal.trim_lines();
             }
             InputEvent::CtrlC => self.terminal.cancel_input(),

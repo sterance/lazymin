@@ -7,6 +7,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::{App, OutputStyle, TerminalLine};
+use crate::game::tick;
 use crate::terminal::highlight::{classify_input, InputHighlight};
 
 const GREEN: Color = Color::Green;
@@ -39,8 +40,12 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
     .alignment(Alignment::Right);
     frame.render_widget(uptime, header_chunks[1]);
 
+    let cycles_per_second = tick::cycles_per_second(&app.game);
     let resources_lines = vec![
-        Line::raw(format!("cycles   {:.0}  (+0.0/s)", app.game.cycles)),
+        Line::raw(format!(
+            "cycles   {:.0}  (+{cycles_per_second:.1}/s)",
+            app.game.cycles
+        )),
         Line::raw("mem      0 MB / 0 MB"),
         Line::raw("disk     0 MB / 0 MB"),
         Line::raw("bw       0 Mbps / 0 Mbps"),
@@ -60,11 +65,10 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
         .block(green_border());
     frame.render_widget(terminal, areas.terminal);
 
-    let log = Paragraph::new(Text::styled(
-        "system initialized. good luck.",
-        Style::default().fg(GREEN).add_modifier(Modifier::DIM),
-    ))
+    let log_scroll = log_scroll_offset(app, areas.log.height);
+    let log = Paragraph::new(log_text(app))
     .style(Style::default().fg(GREEN))
+    .scroll((log_scroll, 0))
     .block(green_border().title("LOG"));
     frame.render_widget(log, areas.log);
 }
@@ -86,11 +90,15 @@ fn terminal_text(app: &App) -> Text<'_> {
         .collect();
 
     let prompt_input = app.terminal.input.clone();
-    let input_highlight = classify_input(&prompt_input);
+    let input_highlight = classify_input(&prompt_input, app);
     let input_style = match input_highlight {
         InputHighlight::Ready => Style::default()
             .fg(GREEN)
             .add_modifier(Modifier::BOLD),
+        InputHighlight::LockedCommand => Style::default()
+            .fg(Color::Red)
+            .add_modifier(Modifier::DIM),
+        InputHighlight::Unaffordable => Style::default().fg(Color::Yellow),
         InputHighlight::PartialMatch => Style::default().fg(GREEN),
         InputHighlight::Unknown => Style::default().fg(GREEN),
     };
@@ -116,6 +124,31 @@ fn terminal_scroll_offset(app: &App, terminal_height: u16) -> u16 {
 
     let total_lines = app.terminal.lines.len() + 1;
     total_lines.saturating_sub(visible_lines) as u16
+}
+
+fn log_scroll_offset(app: &App, log_height: u16) -> u16 {
+    let visible_lines = log_height.saturating_sub(2) as usize;
+    if visible_lines == 0 {
+        return 0;
+    }
+
+    app.game.log.len().saturating_sub(visible_lines) as u16
+}
+
+fn log_text(app: &App) -> Text<'_> {
+    let lines: Vec<Line<'_>> = app
+        .game
+        .log
+        .iter()
+        .map(|entry| {
+            Line::styled(
+                format!("[{}]  {}", format_uptime(entry.uptime_secs), entry.text),
+                Style::default().fg(GREEN).add_modifier(Modifier::DIM),
+            )
+        })
+        .collect();
+
+    Text::from(lines)
 }
 
 fn render_terminal_line(line: &TerminalLine) -> Line<'static> {

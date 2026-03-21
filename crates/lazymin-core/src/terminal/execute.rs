@@ -1,5 +1,5 @@
-use crate::app::{OutputStyle, TerminalLine};
-use crate::app::App;
+use crate::app::{App, OutputStyle, TerminalLine};
+use crate::format::fmt_cycles;
 
 use super::commands::{command_registry, CommandDef};
 
@@ -12,33 +12,86 @@ fn find_command<'a>(input: &'a str) -> Option<&'a CommandDef> {
     command_registry().iter().find(|cmd| cmd.name == trimmed)
 }
 
-pub fn run(input: &str, app: &mut App) -> Vec<TerminalLine> {
+fn is_harvest_typo(input: &str) -> bool {
+    let trimmed = input.trim();
+    if trimmed == "harvest.sh &" {
+        return false;
+    }
+
+    let compact: String = trimmed.chars().filter(|ch| !ch.is_whitespace()).collect();
+    compact == "harvest.sh&" || compact == "./harvest.sh&"
+}
+
+pub struct RunResult {
+    pub lines: Vec<TerminalLine>,
+    pub echo_input: bool,
+}
+
+pub fn run(input: &str, app: &mut App) -> RunResult {
     let trimmed = input.trim_end();
     if trimmed.is_empty() {
-        return Vec::new();
+        return RunResult {
+            lines: Vec::new(),
+            echo_input: true,
+        };
     }
 
     let Some(cmd) = find_command(trimmed) else {
-        return vec![
-            TerminalLine::Output {
-                text: format!("bash: {trimmed}: command not found"),
-                style: OutputStyle::Error,
-            },
-            TerminalLine::Blank,
-        ];
+        let mut lines = vec![TerminalLine::Output {
+            text: format!("bash: {trimmed}: command not found"),
+            style: OutputStyle::Error,
+        }];
+        if is_harvest_typo(trimmed) {
+            lines.push(TerminalLine::Output {
+                text: "hint: did you mean 'harvest.sh &'?".to_owned(),
+                style: OutputStyle::Info,
+            });
+        }
+        lines.push(TerminalLine::Blank);
+
+        return RunResult {
+            lines,
+            echo_input: true,
+        };
     };
 
     if (cmd.locked)(app) {
         let name = command_name_for_error(trimmed);
-        return vec![
-            TerminalLine::Output {
-                text: format!("bash: {name}: Permission denied"),
-                style: OutputStyle::Error,
-            },
-            TerminalLine::Blank,
-        ];
+        return RunResult {
+            lines: vec![
+                TerminalLine::Output {
+                    text: format!("bash: {name}: Permission denied"),
+                    style: OutputStyle::Error,
+                },
+                TerminalLine::Blank,
+            ],
+            echo_input: true,
+        };
     }
 
-    (cmd.execute)(trimmed, app)
+    if let Some(cost_fn) = cmd.cost {
+        let price = cost_fn(app);
+        if app.game.cycles < price {
+            return RunResult {
+                lines: vec![
+                    TerminalLine::Output {
+                        text: format!(
+                            "insufficient cycles (need {}, have {})",
+                            fmt_cycles(price),
+                            fmt_cycles(app.game.cycles)
+                        ),
+                        style: OutputStyle::Error,
+                    },
+                    TerminalLine::Blank,
+                ],
+                echo_input: true,
+            };
+        }
+    }
+
+    RunResult {
+        lines: (cmd.execute)(trimmed, app),
+        echo_input: cmd.name != "clear",
+    }
 }
 
