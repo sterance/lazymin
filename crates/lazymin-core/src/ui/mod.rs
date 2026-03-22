@@ -33,7 +33,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
 
     let title = Paragraph::new(Text::styled(
         "lazymin v0.1.0",
-        Style::default().fg(GREEN),
+        Style::default().fg(GREEN).add_modifier(Modifier::DIM),
     ))
     .alignment(Alignment::Left);
     frame.render_widget(title, header_chunks[0]);

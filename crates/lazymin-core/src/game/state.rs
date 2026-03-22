@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use serde::{Deserialize, Serialize};
+
 use super::log::{push_log, LogEntry};
 use super::producers::ProducerKind;
 use super::resources::{ResourceKind, ResourcePool};
@@ -8,6 +10,7 @@ use super::upgrades::{TimedEffect, UpgradeKind};
 pub const HINT_FATIGUE_THRESHOLD: f64 = 10.0;
 pub const HINT_TIP_DELAY_SECS: f64 = 30.0;
 
+#[derive(Serialize, Deserialize)]
 pub struct GameState {
     pub resources: ResourcePool,
     pub total_cycles_earned: f64,

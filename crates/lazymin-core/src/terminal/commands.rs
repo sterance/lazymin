@@ -1,6 +1,7 @@
 use crate::app::{App, OutputStyle, TerminalLine};
 use crate::format::{fmt_cycles, fmt_mb};
 use crate::game::log::push_log;
+use crate::game::save;
 use crate::game::producers::{all_producers, producer_cost, producer_def, producer_unlocked, ProducerKind};
 use crate::game::resources::{
     all_hardware, hardware_def, total_power_draw, total_reserved_bandwidth, total_reserved_disk,
@@ -637,6 +638,15 @@ fn cmd_clear(_: &str, app: &mut App) -> Vec<TerminalLine> {
 }
 
 fn cmd_exit(_: &str, app: &mut App) -> Vec<TerminalLine> {
+    if let Err(e) = save::save(&app.game) {
+        return vec![
+            TerminalLine::Output {
+                text: format!("save failed: {e}"),
+                style: OutputStyle::Error,
+            },
+            TerminalLine::Blank,
+        ];
+    }
     app.should_quit = true;
     Vec::new()
 }

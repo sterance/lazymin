@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use super::producers::ProducerKind;
 use super::resources::{total_power_draw, ResourceKind};
 use super::state::GameState;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum UpgradeKind {
     ShellcheckHarvestSh,
     AliasHarvest,
@@ -102,7 +104,7 @@ pub struct UpgradeDef {
     pub effect: UpgradeEffect,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimedEffect {
     pub kind: TimedEffectKind,
     pub remaining_secs: f64,
@@ -110,7 +112,7 @@ pub struct TimedEffect {
     pub producer: Option<ProducerKind>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TimedEffectKind {
     GlobalMultiplier,
     ProducerMultiplier,

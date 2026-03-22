@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use super::producers::producer_def;
 use super::producers::ProducerKind;
 
@@ -78,7 +80,7 @@ pub fn total_power_draw(purchases: &HashMap<ResourceKind, u32>) -> f64 {
     total_hardware_watts(purchases) + KERNEL_WATTS
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ResourceKind {
     Cycles,
     Ram,
@@ -88,7 +90,7 @@ pub enum ResourceKind {
     Entropy,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourcePool {
     pub amounts: HashMap<ResourceKind, f64>,
     pub caps: HashMap<ResourceKind, f64>,

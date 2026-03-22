@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use lazymin_core::app::App;
+use lazymin_core::game::save;
 use lazymin_core::input::InputEvent;
 use lazymin_core::ui;
 
@@ -11,6 +12,20 @@ use lazymin_core::game::dev_presets::{dev_game_state, DevTier};
 
 type AppResult<T> = Result<T, Box<dyn Error>>;
 
+fn app_from_disk_or_new() -> App {
+    match save::load() {
+        Ok(Some(mut state)) => {
+            save::append_restore_log_line(&mut state);
+            App::with_game_state(state)
+        }
+        Ok(None) => App::new(),
+        Err(e) => {
+            eprintln!("warning: could not load save: {e}");
+            App::new()
+        }
+    }
+}
+
 fn main() -> AppResult<()> {
     #[cfg(feature = "dev-presets")]
     let mut app = match parse_dev_tier_from_env_args() {
@@ -18,14 +33,14 @@ fn main() -> AppResult<()> {
             eprintln!("dev preset active: {}", tier.as_str());
             App::with_game_state(dev_game_state(tier))
         }
-        Ok(None) => App::new(),
+        Ok(None) => app_from_disk_or_new(),
         Err(msg) => {
             eprintln!("{msg}");
             std::process::exit(1);
         }
     };
     #[cfg(not(feature = "dev-presets"))]
-    let mut app = App::new();
+    let mut app = app_from_disk_or_new();
 
     let mut terminal = ratatui::init();
     let mut last_tick = Instant::now();

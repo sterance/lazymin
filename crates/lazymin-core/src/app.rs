@@ -24,7 +24,6 @@ impl App {
         }
     }
 
-    #[cfg(feature = "dev-presets")]
     pub fn with_game_state(game: GameState) -> Self {
         Self {
             game,
