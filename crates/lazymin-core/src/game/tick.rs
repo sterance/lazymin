@@ -184,10 +184,7 @@ fn remote_cycles_per_second(state: &GameState) -> f64 {
     if !state.remote_channel_active {
         return 0.0;
     }
-    let cap = state
-        .resources
-        .cap(ResourceKind::Bandwidth)
-        .unwrap_or(0.0);
+    let cap = state.resources.cap(ResourceKind::Bandwidth).unwrap_or(0.0);
     let reserved = total_reserved_bandwidth(&state.producers);
     let free = (cap - reserved).max(0.0);
     free * REMOTE_BW_CONVERSION * bandwidth_remote_multiplier(state)
@@ -206,7 +203,12 @@ fn check_unlocks(state: &mut GameState) {
         if !producer_unlocked(state.total_cycles_earned, &state.producers, def.kind) {
             continue;
         }
-        if state.announced_unlocks.get(&def.kind).copied().unwrap_or(false) {
+        if state
+            .announced_unlocks
+            .get(&def.kind)
+            .copied()
+            .unwrap_or(false)
+        {
             continue;
         }
         if def.kind == ProducerKind::ShellScript {

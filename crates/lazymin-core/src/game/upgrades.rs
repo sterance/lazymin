@@ -364,8 +364,7 @@ pub fn all_upgrades() -> &'static [UpgradeDef] {
 }
 
 pub fn upgrade_def(kind: UpgradeKind) -> &'static UpgradeDef {
-    ALL
-        .iter()
+    ALL.iter()
         .find(|u| u.kind == kind)
         .expect("upgrade kind in registry")
 }
@@ -416,15 +415,30 @@ pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
     }
     match kind {
         UpgradeKind::ShellcheckHarvestSh => {
-            state.producers.get(&ProducerKind::ShellScript).copied().unwrap_or(0) >= 1
+            state
+                .producers
+                .get(&ProducerKind::ShellScript)
+                .copied()
+                .unwrap_or(0)
+                >= 1
         }
         UpgradeKind::AliasHarvest => state.manual_runs >= 10,
         UpgradeKind::RunPartsCronHourly => {
-            state.producers.get(&ProducerKind::CronJob).copied().unwrap_or(0) >= 1
+            state
+                .producers
+                .get(&ProducerKind::CronJob)
+                .copied()
+                .unwrap_or(0)
+                >= 1
         }
         UpgradeKind::SudoVisudo => state.total_cycles_earned >= 1_000.0,
         UpgradeKind::SystemctlSetDefaultMultiUser => {
-            state.producers.get(&ProducerKind::Daemon).copied().unwrap_or(0) >= 5
+            state
+                .producers
+                .get(&ProducerKind::Daemon)
+                .copied()
+                .unwrap_or(0)
+                >= 5
         }
         UpgradeKind::MountTmpfs => total_producers(&state.producers) >= 10,
         UpgradeKind::UpscMyups => {
@@ -433,29 +447,49 @@ pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
             cap > 0.0 && used / cap >= 0.8
         }
         UpgradeKind::ZstdTrain => {
-            state.producers.get(&ProducerKind::ServiceUnit).copied().unwrap_or(0) >= 3
+            state
+                .producers
+                .get(&ProducerKind::ServiceUnit)
+                .copied()
+                .unwrap_or(0)
+                >= 3
         }
         UpgradeKind::LogrotateUpgrade => disk_usage_ratio(state) >= 0.5,
         UpgradeKind::BpftraceTracepoint => {
-            state.producers.get(&ProducerKind::KernelModule).copied().unwrap_or(0) >= 5
+            state
+                .producers
+                .get(&ProducerKind::KernelModule)
+                .copied()
+                .unwrap_or(0)
+                >= 5
         }
         UpgradeKind::NumactlInterleave => total_producers(&state.producers) >= 100,
         UpgradeKind::RngdFeedRandom => late_purchases_count_for_rngd(state) >= 3,
         UpgradeKind::CatDevUrandom => {
-            state.producers.get(&ProducerKind::ShellScript).copied().unwrap_or(0) >= 3
+            state
+                .producers
+                .get(&ProducerKind::ShellScript)
+                .copied()
+                .unwrap_or(0)
+                >= 3
         }
         UpgradeKind::ShufRandomSource => state.total_cycles_earned >= 500.0,
         UpgradeKind::OpensslRandBase64 => {
-            state.producers.get(&ProducerKind::CronJob).copied().unwrap_or(0) >= 1
+            state
+                .producers
+                .get(&ProducerKind::CronJob)
+                .copied()
+                .unwrap_or(0)
+                >= 1
         }
-        UpgradeKind::Uuidgen => state
-            .capacity_purchases
-            .values()
-            .copied()
-            .sum::<u32>()
-            > 0,
+        UpgradeKind::Uuidgen => state.capacity_purchases.values().copied().sum::<u32>() > 0,
         UpgradeKind::GpgGenKey => {
-            state.producers.get(&ProducerKind::ServiceUnit).copied().unwrap_or(0) >= 1
+            state
+                .producers
+                .get(&ProducerKind::ServiceUnit)
+                .copied()
+                .unwrap_or(0)
+                >= 1
         }
         UpgradeKind::SshKeygenEd25519 => {
             *state
@@ -467,18 +501,38 @@ pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
         UpgradeKind::MktempD => disk_usage_ratio(state) >= 0.75,
         UpgradeKind::DdDevRandomDisk => total_producers(&state.producers) >= 20,
         UpgradeKind::CertbotRenew => {
-            state.producers.get(&ProducerKind::KernelModule).copied().unwrap_or(0) >= 1
+            state
+                .producers
+                .get(&ProducerKind::KernelModule)
+                .copied()
+                .unwrap_or(0)
+                >= 1
         }
         UpgradeKind::HavegedRun => state.total_entropy_spent >= 50.0,
         UpgradeKind::StressNgCpu => {
-            state.producers.get(&ProducerKind::Hypervisor).copied().unwrap_or(0) >= 1
+            state
+                .producers
+                .get(&ProducerKind::Hypervisor)
+                .copied()
+                .unwrap_or(0)
+                >= 1
         }
         UpgradeKind::FaultInjectEnable => {
-            state.producers.get(&ProducerKind::KernelModule).copied().unwrap_or(0) >= 5
+            state
+                .producers
+                .get(&ProducerKind::KernelModule)
+                .copied()
+                .unwrap_or(0)
+                >= 5
         }
         UpgradeKind::RebootFirmware => state.total_entropy_spent >= 100.0,
         UpgradeKind::Init0Init6 => {
-            state.producers.get(&ProducerKind::OsTakeover).copied().unwrap_or(0) >= 1
+            state
+                .producers
+                .get(&ProducerKind::OsTakeover)
+                .copied()
+                .unwrap_or(0)
+                >= 1
         }
     }
 }
@@ -652,7 +706,6 @@ fn apply_immediate_effect(state: &mut GameState, effect: UpgradeEffect) {
     }
 }
 
-
 pub fn bandwidth_remote_multiplier(state: &GameState) -> f64 {
     let mut m = 1.0;
     for u in ALL {
@@ -667,5 +720,7 @@ pub fn bandwidth_remote_multiplier(state: &GameState) -> f64 {
 }
 
 pub fn fault_inject_active(state: &GameState) -> bool {
-    state.purchased_upgrades.contains(&UpgradeKind::FaultInjectEnable)
+    state
+        .purchased_upgrades
+        .contains(&UpgradeKind::FaultInjectEnable)
 }

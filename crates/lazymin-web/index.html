@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>lazymin</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css"/>
+  <link data-trunk rel="rust" href="Cargo.toml" data-wasm-opt="z"/>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #0d1117; height: 100%; width: 100%; }
+    #terminal { height: 100%; width: 100%; }
+    .xterm { height: 100% !important; }
+    .xterm-viewport::-webkit-scrollbar { display: none; }
+    .xterm-viewport { scrollbar-width: none; }
+  </style>
+</head>
+<body>
+  <div id="terminal"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script type="module">
+    function startApp() {
+      const { run_game, on_terminal_data } = window.wasmBindings;
+      const Terminal = window.Terminal;
+      const FitAddon = window.FitAddon.FitAddon;
+      const container = document.getElementById('terminal');
+      const fitAddon = new FitAddon();
+      const term = new Terminal({
+        cursorBlink: true,
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+        fontSize: 14,
+        theme: {
+          background: '#0d1117',
+          foreground: '#3fb950',
+          cursor: '#3fb950',
+        },
+      });
+      term.loadAddon(fitAddon);
+      term.open(container);
+      fitAddon.fit();
+      window.addEventListener('resize', () => fitAddon.fit());
+
+      const write = (bytes) => {
+        term.write(new Uint8Array(bytes));
+        return bytes.byteLength;
+      };
+      const getSize = () => ({ columns: term.cols, rows: term.rows });
+      run_game(write, getSize);
+      term.onData((data) => on_terminal_data(data));
+    }
+
+    function waitForReady() {
+      if (window.wasmBindings && window.Terminal && window.FitAddon) {
+        startApp();
+        return;
+      }
+      requestAnimationFrame(waitForReady);
+    }
+    waitForReady();
+  </script>
+</body>
+</html>

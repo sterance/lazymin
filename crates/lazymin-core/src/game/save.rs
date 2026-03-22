@@ -1,63 +1,28 @@
-use std::fs;
-use std::io::{self, ErrorKind};
-use std::path::PathBuf;
+use std::io;
 
 use super::log::push_log;
 use super::state::GameState;
 
-const SAVE_FILE: &str = "save.json";
-const SAVE_TMP: &str = "save.json.tmp";
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
+#[cfg(not(target_arch = "wasm32"))]
+use native::{load_impl, save_impl};
 
-/// XDG data directory for this app: `~/.local/share/lazymin/` (or `$XDG_DATA_HOME/lazymin/`).
-pub fn save_dir() -> PathBuf {
-    data_root()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("lazymin")
-}
+#[cfg(target_arch = "wasm32")]
+mod wasm;
+#[cfg(target_arch = "wasm32")]
+use wasm::{load_impl, save_impl};
 
-fn data_root() -> Option<PathBuf> {
-    std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
-}
-
-fn save_path() -> PathBuf {
-    save_dir().join(SAVE_FILE)
-}
-
-fn save_tmp_path() -> PathBuf {
-    save_dir().join(SAVE_TMP)
-}
-
-/// Writes `state` to disk atomically (tmp file + rename).
 pub fn save(state: &GameState) -> io::Result<()> {
-    let dir = save_dir();
-    fs::create_dir_all(&dir)?;
-
-    let json = serde_json::to_vec_pretty(state).map_err(|e| {
-        io::Error::new(ErrorKind::InvalidData, e)
-    })?;
-
-    let tmp = save_tmp_path();
-    let final_path = save_path();
-    fs::write(&tmp, json)?;
-    fs::rename(&tmp, &final_path)?;
-    Ok(())
+    save_impl(state)
 }
 
-/// Loads a game from the default save file. `Ok(None)` if no save exists.
 pub fn load() -> io::Result<Option<GameState>> {
-    let path = save_path();
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let bytes = fs::read(&path)?;
-    let state: GameState = serde_json::from_slice(&bytes).map_err(|e| {
-        io::Error::new(ErrorKind::InvalidData, e)
-    })?;
-    Ok(Some(state))
+    load_impl()
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use native::save_dir;
 
 fn format_uptime_hms(seconds: f64) -> String {
     let total = seconds.max(0.0).floor() as u64;
@@ -67,7 +32,6 @@ fn format_uptime_hms(seconds: f64) -> String {
     format!("{hours:02}:{minutes:02}:{secs:02}")
 }
 
-/// Appends a log line acknowledging that this session was loaded from disk.
 pub fn append_restore_log_line(state: &mut GameState) {
     let label = format_uptime_hms(state.uptime_secs);
     push_log(

@@ -1,5 +1,17 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
+fn content_area_with_left_padding(area: Rect) -> Rect {
+    if area.width <= 1 {
+        return area;
+    }
+    Rect {
+        x: area.x + 1,
+        y: area.y,
+        width: area.width - 1,
+        height: area.height,
+    }
+}
+
 pub struct AppAreas {
     pub header: Rect,
     pub resources: Rect,
@@ -8,6 +20,7 @@ pub struct AppAreas {
 }
 
 pub fn compute(area: Rect) -> AppAreas {
+    let area = content_area_with_left_padding(area);
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([

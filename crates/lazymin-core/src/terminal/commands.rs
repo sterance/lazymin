@@ -1,12 +1,14 @@
 use crate::app::{App, OutputStyle, TerminalLine};
 use crate::format::{fmt_cycles, fmt_mb};
 use crate::game::log::push_log;
-use crate::game::save;
-use crate::game::producers::{all_producers, producer_cost, producer_def, producer_unlocked, ProducerKind};
+use crate::game::producers::{
+    all_producers, producer_cost, producer_def, producer_unlocked, ProducerKind,
+};
 use crate::game::resources::{
     all_hardware, hardware_def, total_power_draw, total_reserved_bandwidth, total_reserved_disk,
     total_reserved_ram, ResourceKind, KERNEL_DISK_MB, KERNEL_RAM_MB, KERNEL_WATTS,
 };
+use crate::game::save;
 use crate::game::tick::grant_cycle_burst;
 use crate::game::upgrades::{
     all_upgrades, apply_upgrade_purchase, effective_disk_cap, upgrade_by_command, upgrade_unlocked,
@@ -97,11 +99,7 @@ fn always_unlocked(_: &App) -> bool {
 }
 
 fn locked_producer(app: &App, kind: ProducerKind) -> bool {
-    !producer_unlocked(
-        app.game.total_cycles_earned,
-        &app.game.producers,
-        kind,
-    )
+    !producer_unlocked(app.game.total_cycles_earned, &app.game.producers, kind)
 }
 
 fn producer_cost_for(app: &App, kind: ProducerKind) -> f64 {
@@ -151,7 +149,11 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
     }
 
     if def.bw_mbps > 0.0 {
-        let bw_cap = app.game.resources.cap(ResourceKind::Bandwidth).unwrap_or(0.0);
+        let bw_cap = app
+            .game
+            .resources
+            .cap(ResourceKind::Bandwidth)
+            .unwrap_or(0.0);
         let reserved_bw = total_reserved_bandwidth(&app.game.producers);
         if reserved_bw + def.bw_mbps > bw_cap + 1e-6 {
             let free = (bw_cap - reserved_bw).max(0.0);
@@ -185,12 +187,19 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
     push_log(
         &mut app.game.log,
         app.game.uptime_secs,
-        format!("{} purchased -- +{:.0} cycles/s", def.name.to_lowercase(), def.base_cycles_per_s),
+        format!(
+            "{} purchased -- +{:.0} cycles/s",
+            def.name.to_lowercase(),
+            def.base_cycles_per_s
+        ),
     );
 
     vec![
         TerminalLine::Output {
-            text: format!("[{owned}] {}  -- +{:.0} cycles/s", def.command, def.base_cycles_per_s),
+            text: format!(
+                "[{owned}] {}  -- +{:.0} cycles/s",
+                def.command, def.base_cycles_per_s
+            ),
             style: OutputStyle::System,
         },
         TerminalLine::Blank,
@@ -202,7 +211,11 @@ fn cap_upgrade_cost(base_cost: f64, purchases: u32) -> f64 {
 }
 
 fn capacity_cost_basis_count(app: &App, kind: ResourceKind) -> u32 {
-    app.game.hardware_cost_basis.get(&kind).copied().unwrap_or(0)
+    app.game
+        .hardware_cost_basis
+        .get(&kind)
+        .copied()
+        .unwrap_or(0)
 }
 
 fn capacity_command_cost_for(app: &App, kind: ResourceKind) -> f64 {
@@ -311,32 +324,78 @@ fn cmd_buy_shell_script(_: &str, app: &mut App) -> Vec<TerminalLine> {
     buy_producer(app, ProducerKind::ShellScript)
 }
 
-fn cmd_buy_cron_job(_: &str, app: &mut App) -> Vec<TerminalLine> { buy_producer(app, ProducerKind::CronJob) }
-fn cmd_buy_daemon(_: &str, app: &mut App) -> Vec<TerminalLine> { buy_producer(app, ProducerKind::Daemon) }
-fn cmd_buy_service_unit(_: &str, app: &mut App) -> Vec<TerminalLine> { buy_producer(app, ProducerKind::ServiceUnit) }
-fn cmd_buy_kernel_module(_: &str, app: &mut App) -> Vec<TerminalLine> { buy_producer(app, ProducerKind::KernelModule) }
-fn cmd_buy_hypervisor(_: &str, app: &mut App) -> Vec<TerminalLine> { buy_producer(app, ProducerKind::Hypervisor) }
-fn cmd_buy_os_takeover(_: &str, app: &mut App) -> Vec<TerminalLine> { buy_producer(app, ProducerKind::OsTakeover) }
+fn cmd_buy_cron_job(_: &str, app: &mut App) -> Vec<TerminalLine> {
+    buy_producer(app, ProducerKind::CronJob)
+}
+fn cmd_buy_daemon(_: &str, app: &mut App) -> Vec<TerminalLine> {
+    buy_producer(app, ProducerKind::Daemon)
+}
+fn cmd_buy_service_unit(_: &str, app: &mut App) -> Vec<TerminalLine> {
+    buy_producer(app, ProducerKind::ServiceUnit)
+}
+fn cmd_buy_kernel_module(_: &str, app: &mut App) -> Vec<TerminalLine> {
+    buy_producer(app, ProducerKind::KernelModule)
+}
+fn cmd_buy_hypervisor(_: &str, app: &mut App) -> Vec<TerminalLine> {
+    buy_producer(app, ProducerKind::Hypervisor)
+}
+fn cmd_buy_os_takeover(_: &str, app: &mut App) -> Vec<TerminalLine> {
+    buy_producer(app, ProducerKind::OsTakeover)
+}
 
-fn lock_cron_job(app: &App) -> bool { locked_producer(app, ProducerKind::CronJob) }
-fn lock_daemon(app: &App) -> bool { locked_producer(app, ProducerKind::Daemon) }
-fn lock_service_unit(app: &App) -> bool { locked_producer(app, ProducerKind::ServiceUnit) }
-fn lock_kernel_module(app: &App) -> bool { locked_producer(app, ProducerKind::KernelModule) }
-fn lock_hypervisor(app: &App) -> bool { locked_producer(app, ProducerKind::Hypervisor) }
-fn lock_os_takeover(app: &App) -> bool { locked_producer(app, ProducerKind::OsTakeover) }
+fn lock_cron_job(app: &App) -> bool {
+    locked_producer(app, ProducerKind::CronJob)
+}
+fn lock_daemon(app: &App) -> bool {
+    locked_producer(app, ProducerKind::Daemon)
+}
+fn lock_service_unit(app: &App) -> bool {
+    locked_producer(app, ProducerKind::ServiceUnit)
+}
+fn lock_kernel_module(app: &App) -> bool {
+    locked_producer(app, ProducerKind::KernelModule)
+}
+fn lock_hypervisor(app: &App) -> bool {
+    locked_producer(app, ProducerKind::Hypervisor)
+}
+fn lock_os_takeover(app: &App) -> bool {
+    locked_producer(app, ProducerKind::OsTakeover)
+}
 
-fn shell_script_cost(app: &App) -> f64 { producer_cost_for(app, ProducerKind::ShellScript) }
-fn cron_job_cost(app: &App) -> f64 { producer_cost_for(app, ProducerKind::CronJob) }
-fn daemon_cost(app: &App) -> f64 { producer_cost_for(app, ProducerKind::Daemon) }
-fn service_unit_cost(app: &App) -> f64 { producer_cost_for(app, ProducerKind::ServiceUnit) }
-fn kernel_module_cost(app: &App) -> f64 { producer_cost_for(app, ProducerKind::KernelModule) }
-fn hypervisor_cost(app: &App) -> f64 { producer_cost_for(app, ProducerKind::Hypervisor) }
-fn os_takeover_cost(app: &App) -> f64 { producer_cost_for(app, ProducerKind::OsTakeover) }
+fn shell_script_cost(app: &App) -> f64 {
+    producer_cost_for(app, ProducerKind::ShellScript)
+}
+fn cron_job_cost(app: &App) -> f64 {
+    producer_cost_for(app, ProducerKind::CronJob)
+}
+fn daemon_cost(app: &App) -> f64 {
+    producer_cost_for(app, ProducerKind::Daemon)
+}
+fn service_unit_cost(app: &App) -> f64 {
+    producer_cost_for(app, ProducerKind::ServiceUnit)
+}
+fn kernel_module_cost(app: &App) -> f64 {
+    producer_cost_for(app, ProducerKind::KernelModule)
+}
+fn hypervisor_cost(app: &App) -> f64 {
+    producer_cost_for(app, ProducerKind::Hypervisor)
+}
+fn os_takeover_cost(app: &App) -> f64 {
+    producer_cost_for(app, ProducerKind::OsTakeover)
+}
 
-fn apt_ram_cost(app: &App) -> f64 { capacity_command_cost_for(app, ResourceKind::Ram) }
-fn apt_disk_cost(app: &App) -> f64 { capacity_command_cost_for(app, ResourceKind::Disk) }
-fn apt_bw_cost(app: &App) -> f64 { capacity_command_cost_for(app, ResourceKind::Bandwidth) }
-fn apt_watts_cost(app: &App) -> f64 { capacity_command_cost_for(app, ResourceKind::Watts) }
+fn apt_ram_cost(app: &App) -> f64 {
+    capacity_command_cost_for(app, ResourceKind::Ram)
+}
+fn apt_disk_cost(app: &App) -> f64 {
+    capacity_command_cost_for(app, ResourceKind::Disk)
+}
+fn apt_bw_cost(app: &App) -> f64 {
+    capacity_command_cost_for(app, ResourceKind::Bandwidth)
+}
+fn apt_watts_cost(app: &App) -> f64 {
+    capacity_command_cost_for(app, ResourceKind::Watts)
+}
 
 fn cmd_buy_ram(_: &str, app: &mut App) -> Vec<TerminalLine> {
     buy_capacity(app, ResourceKind::Ram)
@@ -387,7 +446,12 @@ fn cmd_apt_install(_: &str, app: &mut App) -> Vec<TerminalLine> {
 }
 
 fn cmd_ps_aux(_: &str, app: &mut App) -> Vec<TerminalLine> {
-    let ram_cap = app.game.resources.cap(ResourceKind::Ram).unwrap_or(0.0).max(1e-9);
+    let ram_cap = app
+        .game
+        .resources
+        .cap(ResourceKind::Ram)
+        .unwrap_or(0.0)
+        .max(1e-9);
 
     let mut out = vec![TerminalLine::Output {
         text: format!("{:<6}{:<36}{:<12}{:>5}", "PID", "COMMAND", "RSS", "%MEM"),
@@ -476,12 +540,7 @@ fn cmd_du(_: &str, app: &mut App) -> Vec<TerminalLine> {
     let used = reserved_total + logs;
 
     out.push(TerminalLine::Output {
-        text: format!(
-            "{:<44}{} / {}",
-            "total",
-            fmt_mb(used),
-            fmt_mb(disk_cap)
-        ),
+        text: format!("{:<44}{} / {}", "total", fmt_mb(used), fmt_mb(disk_cap)),
         style: OutputStyle::System,
     });
 
@@ -495,7 +554,11 @@ fn cmd_ifconfig(_: &str, app: &mut App) -> Vec<TerminalLine> {
         style: OutputStyle::Info,
     }];
 
-    let cap = app.game.resources.cap(ResourceKind::Bandwidth).unwrap_or(0.0);
+    let cap = app
+        .game
+        .resources
+        .cap(ResourceKind::Bandwidth)
+        .unwrap_or(0.0);
     let reserved = total_reserved_bandwidth(&app.game.producers);
     let mut any = false;
 
@@ -572,11 +635,7 @@ fn cmd_lshw(_: &str, app: &mut App) -> Vec<TerminalLine> {
         let w = hw.watts * (count as f64);
         total_w += w;
         out.push(TerminalLine::Output {
-            text: format!(
-                "{:<44}{:.1} W",
-                format!("{}  (×{count})", hw.label),
-                w
-            ),
+            text: format!("{:<44}{:.1} W", format!("{}  (×{count})", hw.label), w),
             style: OutputStyle::System,
         });
     }
@@ -646,6 +705,15 @@ fn cmd_exit(_: &str, app: &mut App) -> Vec<TerminalLine> {
             },
             TerminalLine::Blank,
         ];
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        use crate::game::log::push_log;
+        push_log(
+            &mut app.game.log,
+            app.game.uptime_secs,
+            "game saved to browser storage",
+        );
     }
     app.should_quit = true;
     Vec::new()
@@ -1059,4 +1127,3 @@ mod command_order_tests {
         }
     }
 }
-

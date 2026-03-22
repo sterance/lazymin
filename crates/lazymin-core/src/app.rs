@@ -56,7 +56,8 @@ impl App {
             return;
         }
 
-        if !self.game.hint_fatigue_shown && self.game.total_cycles_earned >= HINT_FATIGUE_THRESHOLD {
+        if !self.game.hint_fatigue_shown && self.game.total_cycles_earned >= HINT_FATIGUE_THRESHOLD
+        {
             push_log(
                 &mut self.game.log,
                 self.game.uptime_secs,
@@ -191,11 +192,7 @@ impl TerminalState {
         }
 
         if let Some(idx) = self.history_idx {
-            self.input = self
-                .history
-                .get(idx)
-                .cloned()
-                .unwrap_or_else(String::new);
+            self.input = self.history.get(idx).cloned().unwrap_or_else(String::new);
         }
     }
 

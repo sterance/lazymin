@@ -1,3 +1,3 @@
 [workspace]
-members = ["crates/lazymin-core", "crates/lazymin-native"]
+members = ["crates/lazymin-core", "crates/lazymin-native", "crates/lazymin-web"]
 resolver = "2"

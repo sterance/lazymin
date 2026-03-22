@@ -1,5 +1,6 @@
 # rust
 /target/
+/dist/
 
 # local editor
 /.cursor/

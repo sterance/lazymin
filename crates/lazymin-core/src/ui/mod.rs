@@ -9,7 +9,8 @@ use ratatui::Frame;
 use crate::app::{App, OutputStyle, TerminalLine};
 use crate::format::{canonicalize_zero, fmt_cycles, fmt_cycles_rate, fmt_mb};
 use crate::game::resources::{
-    total_power_draw, total_reserved_bandwidth, total_reserved_disk, total_reserved_ram, ResourceKind,
+    total_power_draw, total_reserved_bandwidth, total_reserved_disk, total_reserved_ram,
+    ResourceKind,
 };
 use crate::game::tick;
 use crate::game::upgrades::effective_disk_cap;
@@ -54,7 +55,12 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
     let disk_used = canonicalize_zero(disk_reserved + disk_logs);
     let disk_cap = canonicalize_zero(effective_disk_cap(&app.game));
     let bw_used = canonicalize_zero(total_reserved_bandwidth(&app.game.producers));
-    let bw_cap = canonicalize_zero(app.game.resources.cap(ResourceKind::Bandwidth).unwrap_or(0.0));
+    let bw_cap = canonicalize_zero(
+        app.game
+            .resources
+            .cap(ResourceKind::Bandwidth)
+            .unwrap_or(0.0),
+    );
     let remote_rate = canonicalize_zero(tick::remote_cycle_rate(&app.game));
     let watts_used = canonicalize_zero(total_power_draw(&app.game.capacity_purchases));
     let watts_cap = canonicalize_zero(app.game.resources.cap(ResourceKind::Watts).unwrap_or(0.0));
@@ -73,7 +79,11 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
             fmt_cycles(cycles),
             fmt_cycles_rate(cycles_per_second)
         )),
-        Line::raw(format!("mem      {} / {}", fmt_mb(ram_used), fmt_mb(ram_cap))),
+        Line::raw(format!(
+            "mem      {} / {}",
+            fmt_mb(ram_used),
+            fmt_mb(ram_cap)
+        )),
         Line::raw(format!(
             "disk     {} / {}",
             fmt_mb(disk_used),
@@ -117,10 +127,10 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
         .line_count(log_inner_w);
     let log_scroll = scroll_offset_for_lines(log_wrapped_lines, areas.log.height);
     let log = Paragraph::new(log_content)
-    .style(Style::default().fg(GREEN))
-    .wrap(Wrap { trim: true })
-    .scroll((log_scroll, 0))
-    .block(green_border().title("LOG"));
+        .style(Style::default().fg(GREEN))
+        .wrap(Wrap { trim: true })
+        .scroll((log_scroll, 0))
+        .block(green_border().title("LOG"));
     frame.render_widget(log, areas.log);
 }
 
@@ -143,20 +153,16 @@ fn terminal_text(app: &App) -> Text<'_> {
     let prompt_input = app.terminal.input.clone();
     let input_highlight = classify_input(&prompt_input, app);
     let input_style = match input_highlight {
-        InputHighlight::Ready => Style::default()
-            .fg(GREEN)
-            .add_modifier(Modifier::BOLD),
-        InputHighlight::LockedCommand => Style::default()
-            .fg(Color::Red)
-            .add_modifier(Modifier::DIM),
+        InputHighlight::Ready => Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+        InputHighlight::LockedCommand => {
+            Style::default().fg(Color::Red).add_modifier(Modifier::DIM)
+        }
         InputHighlight::Unaffordable => Style::default().fg(Color::Yellow),
         InputHighlight::PartialMatch => Style::default().fg(GREEN),
         InputHighlight::Unknown => Style::default().fg(GREEN),
     };
 
-    let cursor_style = Style::default()
-        .fg(GREEN)
-        .add_modifier(Modifier::DIM);
+    let cursor_style = Style::default().fg(GREEN).add_modifier(Modifier::DIM);
 
     lines.push(Line::from(vec![
         Span::styled("$ ", Style::default().fg(GREEN)),
@@ -173,8 +179,7 @@ fn scroll_offset_for_lines(total_wrapped_lines: usize, area_height: u16) -> u16 
         return 0;
     }
 
-    total_wrapped_lines
-        .saturating_sub(visible_lines) as u16
+    total_wrapped_lines.saturating_sub(visible_lines) as u16
 }
 
 fn log_text(app: &App) -> Text<'_> {
@@ -195,12 +200,8 @@ fn log_text(app: &App) -> Text<'_> {
 
 fn render_terminal_line(line: &TerminalLine) -> Line<'static> {
     match line {
-        TerminalLine::Input { raw } => {
-            Line::styled(format!("$ {raw}"), Style::default().fg(GREEN))
-        }
-        TerminalLine::Output { text, style } => {
-            Line::styled(text.clone(), output_style(*style))
-        }
+        TerminalLine::Input { raw } => Line::styled(format!("$ {raw}"), Style::default().fg(GREEN)),
+        TerminalLine::Output { text, style } => Line::styled(text.clone(), output_style(*style)),
         TerminalLine::Blank => Line::raw(""),
     }
 }

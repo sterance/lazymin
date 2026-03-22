@@ -130,16 +130,14 @@ pub fn dev_game_state(tier: DevTier) -> GameState {
     state
 }
 
-fn apply_capacity_purchases(
-    state: &mut GameState,
-    ram: u32,
-    disk: u32,
-    bandwidth: u32,
-    psu: u32,
-) {
+fn apply_capacity_purchases(state: &mut GameState, ram: u32, disk: u32, bandwidth: u32, psu: u32) {
     state.resources.set_cap(ResourceKind::Ram, STARTING_RAM_MB);
-    state.resources.set_cap(ResourceKind::Disk, STARTING_DISK_MB);
-    state.resources.set_cap(ResourceKind::Bandwidth, STARTING_BANDWIDTH_MBPS);
+    state
+        .resources
+        .set_cap(ResourceKind::Disk, STARTING_DISK_MB);
+    state
+        .resources
+        .set_cap(ResourceKind::Bandwidth, STARTING_BANDWIDTH_MBPS);
     state.resources.set_cap(ResourceKind::Watts, STARTING_WATTS);
 
     for _ in 0..ram {
@@ -168,7 +166,9 @@ fn apply_capacity_purchases(
     }
     for _ in 0..bandwidth {
         let hw = hardware_def(ResourceKind::Bandwidth);
-        state.resources.add_cap(ResourceKind::Bandwidth, hw.cap_delta);
+        state
+            .resources
+            .add_cap(ResourceKind::Bandwidth, hw.cap_delta);
         *state
             .capacity_purchases
             .entry(ResourceKind::Bandwidth)
