@@ -1,4 +1,14 @@
+#[inline]
+pub fn canonicalize_zero(x: f64) -> f64 {
+    if x == 0.0 {
+        0.0
+    } else {
+        x
+    }
+}
+
 pub fn fmt_cycles(value: f64) -> String {
+    let value = canonicalize_zero(value);
     let abs = value.abs();
 
     if abs < 1_000.0 {
@@ -18,6 +28,7 @@ pub fn fmt_cycles(value: f64) -> String {
 }
 
 pub fn fmt_cycles_rate(value: f64) -> String {
+    let value = canonicalize_zero(value);
     let abs = value.abs();
     if abs >= 1000.0 {
         return fmt_cycles(value);
@@ -30,6 +41,7 @@ pub fn fmt_cycles_rate(value: f64) -> String {
 }
 
 pub fn fmt_mb(value_mb: f64) -> String {
+    let value_mb = canonicalize_zero(value_mb);
     if value_mb.abs() >= 1024.0 {
         let gb = value_mb / 1024.0;
         format!("{gb:.1} GB")
@@ -88,5 +100,12 @@ mod tests {
         assert_eq!(fmt_mb(16.0), "16 MB");
         assert_eq!(fmt_mb(1024.0), "1.0 GB");
         assert_eq!(fmt_mb(1536.0), "1.5 GB");
+    }
+
+    #[test]
+    fn canonicalize_zero_avoids_negative_zero_display() {
+        assert_eq!(format!("{:.0}", canonicalize_zero(-0.0)), "0");
+        assert_eq!(fmt_cycles_rate(-0.0), "0");
+        assert_eq!(fmt_mb(-0.0), "0 MB");
     }
 }

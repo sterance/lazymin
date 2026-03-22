@@ -19,6 +19,9 @@ pub struct ProducerDef {
     pub base_cycles_per_s: f64,
     pub base_cost: f64,
     pub ram_mb: f64,
+    pub disk_mb: f64,
+    pub log_write_rate: f64,
+    pub bw_mbps: f64,
     pub unlock_threshold: f64,
 }
 
@@ -30,6 +33,9 @@ const PRODUCERS: [ProducerDef; 7] = [
         base_cycles_per_s: 1.0,
         base_cost: 10.0,
         ram_mb: 1.0,
+        disk_mb: 0.5,
+        log_write_rate: 0.01,
+        bw_mbps: 0.0,
         unlock_threshold: 0.0,
     },
     ProducerDef {
@@ -39,6 +45,9 @@ const PRODUCERS: [ProducerDef; 7] = [
         base_cycles_per_s: 8.0,
         base_cost: 100.0,
         ram_mb: 4.0,
+        disk_mb: 2.0,
+        log_write_rate: 0.03,
+        bw_mbps: 0.0,
         unlock_threshold: 50.0,
     },
     ProducerDef {
@@ -48,6 +57,9 @@ const PRODUCERS: [ProducerDef; 7] = [
         base_cycles_per_s: 47.0,
         base_cost: 1_100.0,
         ram_mb: 16.0,
+        disk_mb: 32.0,
+        log_write_rate: 0.1,
+        bw_mbps: 0.0,
         unlock_threshold: 500.0,
     },
     ProducerDef {
@@ -57,6 +69,9 @@ const PRODUCERS: [ProducerDef; 7] = [
         base_cycles_per_s: 260.0,
         base_cost: 12_000.0,
         ram_mb: 64.0,
+        disk_mb: 128.0,
+        log_write_rate: 0.3,
+        bw_mbps: 0.0,
         unlock_threshold: 6_000.0,
     },
     ProducerDef {
@@ -66,6 +81,9 @@ const PRODUCERS: [ProducerDef; 7] = [
         base_cycles_per_s: 1_400.0,
         base_cost: 130_000.0,
         ram_mb: 256.0,
+        disk_mb: 512.0,
+        log_write_rate: 1.0,
+        bw_mbps: 0.0,
         unlock_threshold: 65_000.0,
     },
     ProducerDef {
@@ -75,6 +93,9 @@ const PRODUCERS: [ProducerDef; 7] = [
         base_cycles_per_s: 7_800.0,
         base_cost: 1_400_000.0,
         ram_mb: 1_024.0,
+        disk_mb: 2_048.0,
+        log_write_rate: 3.0,
+        bw_mbps: 5.0,
         unlock_threshold: 700_000.0,
     },
     ProducerDef {
@@ -84,6 +105,9 @@ const PRODUCERS: [ProducerDef; 7] = [
         base_cycles_per_s: 44_000.0,
         base_cost: 20_000_000.0,
         ram_mb: 4_096.0,
+        disk_mb: 8_192.0,
+        log_write_rate: 10.0,
+        bw_mbps: 20.0,
         unlock_threshold: 10_000_000.0,
     },
 ];

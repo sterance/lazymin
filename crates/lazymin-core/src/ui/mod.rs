@@ -7,9 +7,12 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::{App, OutputStyle, TerminalLine};
-use crate::format::{fmt_cycles, fmt_cycles_rate, fmt_mb};
-use crate::game::resources::{total_hardware_watts, total_reserved_ram, ResourceKind};
+use crate::format::{canonicalize_zero, fmt_cycles, fmt_cycles_rate, fmt_mb};
+use crate::game::resources::{
+    total_power_draw, total_reserved_bandwidth, total_reserved_disk, total_reserved_ram, ResourceKind,
+};
 use crate::game::tick;
+use crate::game::upgrades::effective_disk_cap;
 use crate::terminal::highlight::{classify_input, InputHighlight};
 
 const GREEN: Color = Color::Green;
@@ -42,24 +45,28 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
     .alignment(Alignment::Right);
     frame.render_widget(uptime, header_chunks[1]);
 
-    let cycles_per_second = tick::cycles_per_second(&app.game);
-    let cycles = app.game.resources.get(ResourceKind::Cycles);
-    let ram_used = total_reserved_ram(&app.game.producers);
-    let ram_cap = app.game.resources.cap(ResourceKind::Ram).unwrap_or(0.0);
-    let disk_used = app.game.resources.get(ResourceKind::Disk);
-    let disk_cap = app.game.resources.cap(ResourceKind::Disk).unwrap_or(0.0);
-    let bw_used = app.game.resources.get(ResourceKind::Bandwidth);
-    let bw_cap = app.game.resources.cap(ResourceKind::Bandwidth).unwrap_or(0.0);
-    let watts_used = total_hardware_watts(&app.game.capacity_purchases);
-    let watts_cap = app.game.resources.cap(ResourceKind::Watts).unwrap_or(0.0);
-    let entropy = app.game.resources.get(ResourceKind::Entropy);
-    let entropy_rate = app
-        .game
-        .resources
-        .rates
-        .get(&ResourceKind::Entropy)
-        .copied()
-        .unwrap_or(0.0);
+    let cycles_per_second = canonicalize_zero(tick::cycles_per_second(&app.game));
+    let cycles = canonicalize_zero(app.game.resources.get(ResourceKind::Cycles));
+    let ram_used = canonicalize_zero(total_reserved_ram(&app.game.producers));
+    let ram_cap = canonicalize_zero(app.game.resources.cap(ResourceKind::Ram).unwrap_or(0.0));
+    let disk_reserved = total_reserved_disk(&app.game.producers);
+    let disk_logs = canonicalize_zero(app.game.disk_log_usage);
+    let disk_used = canonicalize_zero(disk_reserved + disk_logs);
+    let disk_cap = canonicalize_zero(effective_disk_cap(&app.game));
+    let bw_used = canonicalize_zero(total_reserved_bandwidth(&app.game.producers));
+    let bw_cap = canonicalize_zero(app.game.resources.cap(ResourceKind::Bandwidth).unwrap_or(0.0));
+    let remote_rate = canonicalize_zero(tick::remote_cycle_rate(&app.game));
+    let watts_used = canonicalize_zero(total_power_draw(&app.game.capacity_purchases));
+    let watts_cap = canonicalize_zero(app.game.resources.cap(ResourceKind::Watts).unwrap_or(0.0));
+    let entropy = canonicalize_zero(app.game.resources.get(ResourceKind::Entropy));
+    let entropy_rate = canonicalize_zero(
+        app.game
+            .resources
+            .rates
+            .get(&ResourceKind::Entropy)
+            .copied()
+            .unwrap_or(0.0),
+    );
     let resources_lines = vec![
         Line::raw(format!(
             "cycles   {}  (+{}/s)",
@@ -67,8 +74,21 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
             fmt_cycles_rate(cycles_per_second)
         )),
         Line::raw(format!("mem      {} / {}", fmt_mb(ram_used), fmt_mb(ram_cap))),
-        Line::raw(format!("disk     {} / {}", fmt_mb(disk_used), fmt_mb(disk_cap))),
-        Line::raw(format!("bw       {:.0} / {:.0} Mbps", bw_used, bw_cap)),
+        Line::raw(format!(
+            "disk     {} / {}",
+            fmt_mb(disk_used),
+            fmt_mb(disk_cap),
+        )),
+        Line::raw(format!(
+            "bw       {:.0} / {:.0} Mbps{}",
+            bw_used,
+            bw_cap,
+            if app.game.remote_channel_active {
+                format!("  (remote +{}/s)", fmt_cycles_rate(remote_rate))
+            } else {
+                String::new()
+            }
+        )),
         Line::raw(format!("power    {:.1} W / {:.1} W", watts_used, watts_cap)),
         Line::raw(format!("entropy  {:.2}  (+{entropy_rate:.2}/s)", entropy)),
     ];

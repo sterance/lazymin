@@ -9,6 +9,10 @@ pub const STARTING_BANDWIDTH_MBPS: f64 = 0.0;
 pub const STARTING_WATTS: f64 = 5.0;
 pub const BASE_ENTROPY_PER_SEC: f64 = 0.01;
 
+pub const KERNEL_RAM_MB: f64 = 4.0;
+pub const KERNEL_DISK_MB: f64 = 100.0;
+pub const KERNEL_WATTS: f64 = 1.0;
+
 #[derive(Debug, Clone, Copy)]
 pub struct HardwareDef {
     pub kind: ResourceKind,
@@ -68,6 +72,10 @@ pub fn total_hardware_watts(purchases: &HashMap<ResourceKind, u32>) -> f64 {
             count * def.watts
         })
         .sum()
+}
+
+pub fn total_power_draw(purchases: &HashMap<ResourceKind, u32>) -> f64 {
+    total_hardware_watts(purchases) + KERNEL_WATTS
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -166,8 +174,24 @@ impl ResourcePool {
 }
 
 pub fn total_reserved_ram(producers: &HashMap<ProducerKind, u32>) -> f64 {
+    KERNEL_RAM_MB
+        + producers
+            .iter()
+            .map(|(kind, count)| producer_def(*kind).ram_mb * (*count as f64))
+            .sum::<f64>()
+}
+
+pub fn total_reserved_disk(producers: &HashMap<ProducerKind, u32>) -> f64 {
+    KERNEL_DISK_MB
+        + producers
+            .iter()
+            .map(|(kind, count)| producer_def(*kind).disk_mb * (*count as f64))
+            .sum::<f64>()
+}
+
+pub fn total_reserved_bandwidth(producers: &HashMap<ProducerKind, u32>) -> f64 {
     producers
         .iter()
-        .map(|(kind, count)| producer_def(*kind).ram_mb * (*count as f64))
+        .map(|(kind, count)| producer_def(*kind).bw_mbps * (*count as f64))
         .sum()
 }

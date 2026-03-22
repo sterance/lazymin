@@ -65,7 +65,7 @@ pub fn dev_game_state(tier: DevTier) -> GameState {
         DevTier::Service => (12_000.0, 50_000.0, 2, 0, 0, 1),
         DevTier::Kernel => (130_000.0, 500_000.0, 4, 0, 0, 1),
         DevTier::Hypervisor => (1_400_000.0, 5_000_000.0, 9, 0, 0, 2),
-        DevTier::Takeover => (20_000_000.0, 50_000_000.0, 29, 0, 0, 4),
+        DevTier::Takeover => (20_000_000.0, 50_000_000.0, 29, 0, 1, 4),
     };
 
     let mut producers = HashMap::new();
@@ -149,12 +149,20 @@ fn apply_capacity_purchases(
             .capacity_purchases
             .entry(ResourceKind::Ram)
             .or_insert(0) += 1;
+        *state
+            .hardware_cost_basis
+            .entry(ResourceKind::Ram)
+            .or_insert(0) += 1;
     }
     for _ in 0..disk {
         let hw = hardware_def(ResourceKind::Disk);
         state.resources.add_cap(ResourceKind::Disk, hw.cap_delta);
         *state
             .capacity_purchases
+            .entry(ResourceKind::Disk)
+            .or_insert(0) += 1;
+        *state
+            .hardware_cost_basis
             .entry(ResourceKind::Disk)
             .or_insert(0) += 1;
     }
@@ -165,12 +173,20 @@ fn apply_capacity_purchases(
             .capacity_purchases
             .entry(ResourceKind::Bandwidth)
             .or_insert(0) += 1;
+        *state
+            .hardware_cost_basis
+            .entry(ResourceKind::Bandwidth)
+            .or_insert(0) += 1;
     }
     for _ in 0..psu {
         let hw = hardware_def(ResourceKind::Watts);
         state.resources.add_cap(ResourceKind::Watts, hw.cap_delta);
         *state
             .capacity_purchases
+            .entry(ResourceKind::Watts)
+            .or_insert(0) += 1;
+        *state
+            .hardware_cost_basis
             .entry(ResourceKind::Watts)
             .or_insert(0) += 1;
     }

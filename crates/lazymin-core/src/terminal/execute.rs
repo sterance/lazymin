@@ -2,7 +2,7 @@ use crate::app::{App, OutputStyle, TerminalLine};
 use crate::format::fmt_cycles;
 use crate::game::resources::ResourceKind;
 
-use super::commands::{command_registry, CommandDef};
+use super::commands::{command_registry, run_purchased_upgrade, CommandDef};
 
 fn command_name_for_error(input: &str) -> &str {
     input.split_whitespace().next().unwrap_or(input)
@@ -33,6 +33,13 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
     if trimmed.is_empty() {
         return RunResult {
             lines: Vec::new(),
+            echo_input: true,
+        };
+    }
+
+    if let Some(lines) = run_purchased_upgrade(app, trimmed) {
+        return RunResult {
+            lines,
             echo_input: true,
         };
     }
@@ -96,4 +103,3 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
         echo_input: cmd.name != "clear",
     }
 }
-
