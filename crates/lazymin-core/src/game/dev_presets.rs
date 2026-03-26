@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use super::log::push_log;
+use super::hints;
 use super::producers::{all_producers, ProducerKind};
 use super::resources::{
     hardware_def, ResourceKind, STARTING_BANDWIDTH_MBPS, STARTING_DISK_MB, STARTING_RAM_MB,
@@ -111,9 +112,7 @@ pub fn dev_game_state(tier: DevTier) -> GameState {
     state.producers = producers;
     state.total_cycles_earned = earned;
     state.resources.set(ResourceKind::Cycles, cycles);
-    state.hint_fatigue_shown = true;
-    state.hint_tip_shown = true;
-    state.hint_fatigue_fired_at = Some(0.0);
+    hints::mark_all_hints_triggered(&mut state.hints, state.uptime_secs);
 
     for def in all_producers() {
         state.announced_unlocks.insert(def.kind, true);

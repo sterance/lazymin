@@ -43,7 +43,7 @@ const PRODUCERS: [ProducerDef; 7] = [
     ProducerDef {
         kind: ProducerKind::CronJob,
         name: "Cron Job",
-        command: "crontab -e",
+        command: "crontab harvest.cron",
         base_cycles_per_s: 8.0,
         base_cost: 100.0,
         ram_mb: 4.0,

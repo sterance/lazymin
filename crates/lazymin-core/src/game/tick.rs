@@ -81,20 +81,24 @@ fn tick_chaos_inject(state: &mut GameState, delta_secs: f64) {
     });
 }
 
-fn tick_disk_logs(state: &mut GameState, delta_secs: f64) {
+pub fn disk_log_growth_rate(state: &GameState) -> f64 {
     let paused = state
         .disk_log_paused_until
         .is_some_and(|u| state.uptime_secs < u);
     if paused {
-        return;
+        return 0.0;
     }
     let lr = log_write_rate_multiplier(state);
-    let rate: f64 = state
+    state
         .producers
         .iter()
         .map(|(k, n)| producer_def(*k).log_write_rate * (*n as f64))
         .sum::<f64>()
-        * lr;
+        * lr
+}
+
+fn tick_disk_logs(state: &mut GameState, delta_secs: f64) {
+    let rate = disk_log_growth_rate(state);
     state.disk_log_usage += rate * delta_secs;
     let cap = effective_disk_cap(state);
     if cap > 0.0 && state.disk_log_usage + total_reserved_disk(&state.producers) > cap {

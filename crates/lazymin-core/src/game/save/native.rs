@@ -52,3 +52,12 @@ pub(super) fn load_impl() -> io::Result<Option<GameState>> {
         serde_json::from_slice(&bytes).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
     Ok(Some(state))
 }
+
+pub(super) fn delete_impl() -> io::Result<()> {
+    let path = save_path();
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}

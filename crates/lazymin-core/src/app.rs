@@ -1,8 +1,9 @@
 use std::collections::VecDeque;
 
 use crate::game::log::push_log;
-use crate::game::producers::ProducerKind;
-use crate::game::state::{GameState, HINT_FATIGUE_THRESHOLD, HINT_TIP_DELAY_SECS};
+use crate::game::hints;
+use crate::game::save;
+use crate::game::state::GameState;
 use crate::game::tick;
 use crate::input::InputEvent;
 
@@ -13,6 +14,7 @@ pub struct App {
     pub game: GameState,
     pub terminal: TerminalState,
     pub should_quit: bool,
+    pub pending_reset: bool,
 }
 
 impl App {
@@ -21,6 +23,7 @@ impl App {
             game: GameState::new(),
             terminal: TerminalState::new(),
             should_quit: false,
+            pending_reset: false,
         }
     }
 
@@ -29,6 +32,7 @@ impl App {
             game,
             terminal: TerminalState::new(),
             should_quit: false,
+            pending_reset: false,
         }
     }
 
@@ -44,40 +48,12 @@ impl App {
     }
 
     fn check_hints(&mut self) {
-        let owns_shell_script = self
-            .game
-            .producers
-            .get(&ProducerKind::ShellScript)
-            .copied()
-            .unwrap_or(0)
-            > 0;
+        let mut tracker = std::mem::take(&mut self.game.hints);
+        let messages = hints::evaluate(&self.game, &mut tracker);
+        self.game.hints = tracker;
 
-        if owns_shell_script {
-            return;
-        }
-
-        if !self.game.hint_fatigue_shown && self.game.total_cycles_earned >= HINT_FATIGUE_THRESHOLD
-        {
-            push_log(
-                &mut self.game.log,
-                self.game.uptime_secs,
-                "this is getting tedious. there has to be a better way...",
-            );
-            self.game.hint_fatigue_shown = true;
-            self.game.hint_fatigue_fired_at = Some(self.game.uptime_secs);
-        }
-
-        if !self.game.hint_tip_shown {
-            if let Some(fired_at) = self.game.hint_fatigue_fired_at {
-                if self.game.uptime_secs >= fired_at + HINT_TIP_DELAY_SECS {
-                    push_log(
-                        &mut self.game.log,
-                        self.game.uptime_secs,
-                        "# tip: append & to a command to run it in the background",
-                    );
-                    self.game.hint_tip_shown = true;
-                }
-            }
+        for text in messages {
+            push_log(&mut self.game.log, self.game.uptime_secs, text);
         }
     }
 
@@ -94,6 +70,52 @@ impl App {
                 self.terminal.push_history(input.clone());
                 self.terminal.history_idx = None;
                 self.terminal.saved_input = None;
+
+                if self.pending_reset {
+                    let trimmed = input.trim();
+                    if trimmed == "CONFIRM" {
+                        let delete_res = save::delete();
+                        self.game = GameState::new();
+                        self.pending_reset = false;
+
+                        self.terminal.clear_lines();
+
+                        match delete_res {
+                            Ok(()) => {}
+                            Err(e) => {
+                                let text = format!(
+                                    "all data erased, but save deletion failed: {e}"
+                                );
+                                let style = OutputStyle::Error;
+
+                                push_log(
+                                    &mut self.game.log,
+                                    self.game.uptime_secs,
+                                    text.clone(),
+                                );
+                                self.terminal.lines.push_back(TerminalLine::Output {
+                                    text,
+                                    style,
+                                });
+                                self.terminal.lines.push_back(TerminalLine::Blank);
+                            }
+                        }
+                        self.terminal.trim_lines();
+                    } else {
+                        self.pending_reset = false;
+                        self.terminal.lines.push_back(TerminalLine::Input {
+                            raw: input.clone(),
+                        });
+                        self.terminal.lines.push_back(TerminalLine::Output {
+                            text: "reset aborted.".to_owned(),
+                            style: OutputStyle::Info,
+                        });
+                        self.terminal.lines.push_back(TerminalLine::Blank);
+                        self.terminal.trim_lines();
+                    }
+
+                    return;
+                }
 
                 let run_result = crate::terminal::execute::run(&input, self);
 

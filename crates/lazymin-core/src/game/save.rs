@@ -6,12 +6,12 @@ use super::state::GameState;
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(not(target_arch = "wasm32"))]
-use native::{load_impl, save_impl};
+use native::{delete_impl, load_impl, save_impl};
 
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 #[cfg(target_arch = "wasm32")]
-use wasm::{load_impl, save_impl};
+use wasm::{delete_impl, load_impl, save_impl};
 
 pub fn save(state: &GameState) -> io::Result<()> {
     save_impl(state)
@@ -19,6 +19,10 @@ pub fn save(state: &GameState) -> io::Result<()> {
 
 pub fn load() -> io::Result<Option<GameState>> {
     load_impl()
+}
+
+pub fn delete() -> io::Result<()> {
+    delete_impl()
 }
 
 #[cfg(not(target_arch = "wasm32"))]

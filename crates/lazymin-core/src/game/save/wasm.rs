@@ -35,3 +35,10 @@ pub(super) fn load_impl() -> io::Result<Option<GameState>> {
         serde_json::from_str(&json).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
     Ok(Some(state))
 }
+
+pub(super) fn delete_impl() -> io::Result<()> {
+    storage()?
+        .remove_item(STORAGE_KEY)
+        .map_err(|e| io::Error::new(ErrorKind::Other, format!("{e:?}")))?;
+    Ok(())
+}

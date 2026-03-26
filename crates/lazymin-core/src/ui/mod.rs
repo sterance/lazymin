@@ -188,10 +188,40 @@ fn log_text(app: &App) -> Text<'_> {
         .log
         .iter()
         .map(|entry| {
-            Line::styled(
-                format!("[{}]  {}", format_uptime(entry.uptime_secs), entry.text),
-                Style::default().fg(GREEN).add_modifier(Modifier::DIM),
-            )
+            let base_style = Style::default().fg(GREEN).add_modifier(Modifier::DIM);
+            let command_style = Style::default()
+                .fg(GREEN)
+                .add_modifier(Modifier::BOLD);
+
+            let uptime_prefix = format!("[{}]  ", format_uptime(entry.uptime_secs));
+            let backtick_count = entry.text.matches('`').count();
+
+            if backtick_count % 2 != 0 {
+                return Line::styled(
+                    format!("{uptime_prefix}{}", entry.text),
+                    base_style,
+                );
+            }
+
+            let parts: Vec<&str> = entry.text.split('`').collect();
+            let mut spans: Vec<Span<'_>> = Vec::new();
+            spans.push(Span::styled(uptime_prefix, base_style));
+
+            for (idx, part) in parts.iter().enumerate() {
+                if part.is_empty() {
+                    continue;
+                }
+
+                let style = if idx % 2 == 1 {
+                    command_style
+                } else {
+                    base_style
+                };
+
+                spans.push(Span::styled((*part).to_owned(), style));
+            }
+
+            Line::from(spans)
         })
         .collect();
 

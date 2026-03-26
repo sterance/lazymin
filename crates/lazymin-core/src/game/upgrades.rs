@@ -34,6 +34,7 @@ pub enum UpgradeKind {
     FaultInjectEnable,
     RebootFirmware,
     Init0Init6,
+    JournaldVacuum,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -92,6 +93,23 @@ pub enum UpgradeEffect {
     WattHardwareCostFactor {
         factor: f64,
     },
+    DiskLogReset,
+}
+
+impl UpgradeEffect {
+    pub fn is_burst(self) -> bool {
+        matches!(
+            self,
+            UpgradeEffect::CycleBurst { .. }
+                | UpgradeEffect::TimedGlobalMultiplier { .. }
+                | UpgradeEffect::HardwareCostBasisReset
+                | UpgradeEffect::DiskPause { .. }
+                | UpgradeEffect::NextHardwareDiscount { .. }
+                | UpgradeEffect::RandomCostVariance { .. }
+                | UpgradeEffect::ChaosMonkey { .. }
+                | UpgradeEffect::DiskLogReset
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -357,6 +375,14 @@ const ALL: &[UpgradeDef] = &[
         description: "all producers x2 permanent",
         effect: UpgradeEffect::GlobalMultiplier { factor: 2.0 },
     },
+    UpgradeDef {
+        kind: UpgradeKind::JournaldVacuum,
+        command: "journald --vacuum-size",
+        cycles_cost: 500.0,
+        entropy_cost: 0.0,
+        description: "clear accumulated log disk usage",
+        effect: UpgradeEffect::DiskLogReset,
+    },
 ];
 
 pub fn all_upgrades() -> &'static [UpgradeDef] {
@@ -371,6 +397,28 @@ pub fn upgrade_def(kind: UpgradeKind) -> &'static UpgradeDef {
 
 pub fn upgrade_by_command(cmd: &str) -> Option<&'static UpgradeDef> {
     ALL.iter().find(|u| u.command == cmd)
+}
+
+pub fn is_burst_upgrade(kind: UpgradeKind) -> bool {
+    upgrade_def(kind).effect.is_burst()
+}
+
+pub fn burst_upgrade_cost(def: &UpgradeDef, purchases: u32) -> (f64, f64) {
+    let scale = 1.15_f64.powi(purchases as i32);
+    (def.cycles_cost * scale, def.entropy_cost * scale)
+}
+
+pub fn upgrade_purchased_at_least_once(state: &GameState, kind: UpgradeKind) -> bool {
+    if is_burst_upgrade(kind) {
+        state
+            .burst_purchase_counts
+            .get(&kind)
+            .copied()
+            .unwrap_or(0)
+            > 0
+    } else {
+        state.purchased_upgrades.contains(&kind)
+    }
 }
 
 fn total_producers(producers: &HashMap<ProducerKind, u32>) -> u32 {
@@ -388,7 +436,7 @@ const LATE_FOR_RNGD: &[UpgradeKind] = &[
 fn late_purchases_count_for_rngd(state: &GameState) -> u32 {
     LATE_FOR_RNGD
         .iter()
-        .filter(|k| state.purchased_upgrades.contains(k))
+        .filter(|&&k| upgrade_purchased_at_least_once(state, k))
         .count() as u32
 }
 
@@ -410,7 +458,7 @@ pub fn effective_disk_cap(state: &GameState) -> f64 {
 }
 
 pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
-    if state.purchased_upgrades.contains(&kind) {
+    if !is_burst_upgrade(kind) && state.purchased_upgrades.contains(&kind) {
         return false;
     }
     match kind {
@@ -534,6 +582,7 @@ pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
                 .unwrap_or(0)
                 >= 1
         }
+        UpgradeKind::JournaldVacuum => state.disk_log_usage > 0.0,
     }
 }
 
@@ -620,12 +669,16 @@ pub fn watt_hardware_cost_multiplier(state: &GameState) -> f64 {
     }
 }
 
-pub fn apply_upgrade_purchase(state: &mut GameState, kind: UpgradeKind) {
+pub fn apply_upgrade_purchase(state: &mut GameState, kind: UpgradeKind, entropy_spent: f64) {
     let def = upgrade_def(kind);
     let effect = def.effect;
-    state.purchased_upgrades.insert(kind);
-    if def.entropy_cost > 0.0 {
-        state.total_entropy_spent += def.entropy_cost;
+    if is_burst_upgrade(kind) {
+        *state.burst_purchase_counts.entry(kind).or_insert(0) += 1;
+    } else {
+        state.purchased_upgrades.insert(kind);
+    }
+    if entropy_spent > 0.0 {
+        state.total_entropy_spent += entropy_spent;
     }
     match effect {
         UpgradeEffect::CycleBurst { .. } => {}
@@ -635,7 +688,8 @@ pub fn apply_upgrade_purchase(state: &mut GameState, kind: UpgradeKind) {
         | UpgradeEffect::NextHardwareDiscount { .. }
         | UpgradeEffect::RandomCostVariance { .. }
         | UpgradeEffect::ChaosMonkey { .. }
-        | UpgradeEffect::DiskCapScale { .. } => apply_immediate_effect(state, effect),
+        | UpgradeEffect::DiskCapScale { .. }
+        | UpgradeEffect::DiskLogReset => apply_immediate_effect(state, effect),
         UpgradeEffect::ChaosTick { .. }
         | UpgradeEffect::ProducerMultiplier { .. }
         | UpgradeEffect::GlobalMultiplier { .. }
@@ -701,6 +755,9 @@ fn apply_immediate_effect(state: &mut GameState, effect: UpgradeEffect) {
             state.chaos_monkey_silence_until = Some(now + silence_secs);
             state.chaos_monkey_boost_until = Some(now + silence_secs + boost_secs);
             state.chaos_monkey_boost_factor = boost_factor;
+        }
+        UpgradeEffect::DiskLogReset => {
+            state.disk_log_usage = 0.0;
         }
         _ => {}
     }

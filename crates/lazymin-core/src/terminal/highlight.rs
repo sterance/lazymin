@@ -1,6 +1,8 @@
 use crate::app::App;
 use crate::game::resources::ResourceKind;
-use crate::game::upgrades::{all_upgrades, upgrade_by_command, upgrade_unlocked};
+use crate::game::upgrades::{
+    all_upgrades, burst_upgrade_cost, is_burst_upgrade, upgrade_by_command, upgrade_unlocked,
+};
 
 use super::commands::command_registry;
 
@@ -19,11 +21,24 @@ pub fn classify_input(input: &str, app: &App) -> InputHighlight {
     }
 
     if let Some(u) = upgrade_by_command(normalized) {
-        if !upgrade_unlocked(&app.game, u.kind) || app.game.purchased_upgrades.contains(&u.kind) {
+        if !upgrade_unlocked(&app.game, u.kind)
+            || (!is_burst_upgrade(u.kind) && app.game.purchased_upgrades.contains(&u.kind))
+        {
             return InputHighlight::LockedCommand;
         }
-        if app.game.resources.get(ResourceKind::Cycles) < u.cycles_cost
-            || app.game.resources.get(ResourceKind::Entropy) + 1e-12 < u.entropy_cost
+        let (cy, ent) = if is_burst_upgrade(u.kind) {
+            let bought = app
+                .game
+                .burst_purchase_counts
+                .get(&u.kind)
+                .copied()
+                .unwrap_or(0);
+            burst_upgrade_cost(u, bought)
+        } else {
+            (u.cycles_cost, u.entropy_cost)
+        };
+        if app.game.resources.get(ResourceKind::Cycles) < cy
+            || app.game.resources.get(ResourceKind::Entropy) + 1e-12 < ent
         {
             return InputHighlight::Unaffordable;
         }
