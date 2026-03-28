@@ -681,13 +681,7 @@ fn cmd_lshw(_: &str, app: &mut App) -> Vec<TerminalLine> {
 }
 
 fn cmd_ls(_: &str, app: &mut App) -> Vec<TerminalLine> {
-    let hide_harvest_bg = app
-        .game
-        .producers
-        .get(&ProducerKind::ShellScript)
-        .copied()
-        .unwrap_or(0)
-        == 0;
+    let hide_harvest_bg = app.game.total_cycles_earned < 10.0;
 
     let names: Vec<&str> = LS_ORDER
         .iter()
@@ -723,7 +717,7 @@ fn cmd_ls(_: &str, app: &mut App) -> Vec<TerminalLine> {
 
 fn cmd_hello(_: &str, _: &mut App) -> Vec<TerminalLine> {
     const ART: &[&str] = &[
-        r"....,       ,....",
+        r"  ....,       ,....",
         r".' ,,, '.   .' ,,, '.",
         r" .`   `.     .`   `.",
         r": ..... :   : ..... :",
