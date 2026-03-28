@@ -8,7 +8,7 @@ use super::producers::producer_def;
 use super::producers::ProducerKind;
 
 pub const STARTING_RAM_MB: f64 = 16.0;
-pub const STARTING_DISK_MB: f64 = 1024.0;
+pub const STARTING_DISK_MB: f64 = 512.0;
 pub const STARTING_BANDWIDTH_MBPS: f64 = 0.0;
 pub const STARTING_WATTS: f64 = 5.0;
 pub const BASE_ENTROPY_PER_SEC: f64 = 0.01;

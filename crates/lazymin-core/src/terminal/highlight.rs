@@ -5,6 +5,7 @@ use crate::game::upgrades::{
 };
 
 use super::commands::command_registry;
+use super::execute::sudo_resolve;
 
 pub enum InputHighlight {
     Unknown,
@@ -20,8 +21,10 @@ pub fn classify_input(input: &str, app: &App) -> InputHighlight {
         return InputHighlight::Unknown;
     }
 
-    if let Some(u) = upgrade_by_command(normalized) {
-        if !upgrade_unlocked(&app.game, u.kind)
+    let (sudo_bypass, effective) = sudo_resolve(normalized);
+
+    if let Some(u) = upgrade_by_command(effective) {
+        if (!sudo_bypass && !upgrade_unlocked(&app.game, u.kind))
             || (!is_burst_upgrade(u.kind) && app.game.purchased_upgrades.contains(&u.kind))
         {
             return InputHighlight::LockedCommand;
@@ -47,8 +50,8 @@ pub fn classify_input(input: &str, app: &App) -> InputHighlight {
 
     let mut partial = false;
     for cmd in command_registry() {
-        if cmd.name == normalized {
-            if (cmd.locked)(app) {
+        if cmd.name == effective {
+            if !sudo_bypass && (cmd.locked)(app) {
                 return InputHighlight::LockedCommand;
             }
             if let Some(cost_fn) = cmd.cost {
@@ -58,14 +61,14 @@ pub fn classify_input(input: &str, app: &App) -> InputHighlight {
             }
             return InputHighlight::Ready;
         }
-        if cmd.name.starts_with(normalized) {
+        if cmd.name.starts_with(effective) {
             partial = true;
         }
     }
     if !partial {
         partial = all_upgrades()
             .iter()
-            .any(|u| u.command.starts_with(normalized));
+            .any(|u| u.command.starts_with(effective));
     }
 
     if partial {

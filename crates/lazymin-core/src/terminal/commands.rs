@@ -852,9 +852,13 @@ fn cmd_upgrades(_: &str, app: &mut App) -> Vec<TerminalLine> {
     out
 }
 
-pub fn run_purchased_upgrade(app: &mut App, trimmed: &str) -> Option<Vec<TerminalLine>> {
+pub fn run_purchased_upgrade(
+    app: &mut App,
+    trimmed: &str,
+    bypass_unlock: bool,
+) -> Option<Vec<TerminalLine>> {
     let u = upgrade_by_command(trimmed)?;
-    if !upgrade_unlocked(&app.game, u.kind) {
+    if !bypass_unlock && !upgrade_unlocked(&app.game, u.kind) {
         return Some(vec![
             TerminalLine::Output {
                 text: "bash: upgrade: Permission denied".to_owned(),

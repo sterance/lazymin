@@ -1,6 +1,7 @@
 use crate::app::{App, OutputStyle, TerminalLine};
 use crate::format::fmt_cycles;
 use crate::game::resources::ResourceKind;
+use crate::game::upgrades::upgrade_by_command;
 
 use super::commands::{command_registry, run_purchased_upgrade, CommandDef};
 use super::suggest::suggest_command;
@@ -10,8 +11,24 @@ fn command_name_for_error(input: &str) -> &str {
 }
 
 fn find_command<'a>(input: &'a str) -> Option<&'a CommandDef> {
-    let trimmed = input.trim_end();
-    command_registry().iter().find(|cmd| cmd.name == trimmed)
+    command_registry().iter().find(|cmd| cmd.name == input)
+}
+
+/// when the full line is not an exact upgrade or registry command, strip a leading `sudo `
+/// and return `(true, inner)` so unlock checks are skipped for that run.
+pub fn sudo_resolve(trimmed: &str) -> (bool, &str) {
+    if upgrade_by_command(trimmed).is_some() {
+        return (false, trimmed);
+    }
+    if command_registry().iter().any(|cmd| cmd.name == trimmed) {
+        return (false, trimmed);
+    }
+    if let Some(inner) = trimmed.strip_prefix("sudo ") {
+        if !inner.is_empty() {
+            return (true, inner);
+        }
+    }
+    (false, trimmed)
 }
 
 pub struct RunResult {
@@ -28,19 +45,21 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
         };
     }
 
-    if let Some(lines) = run_purchased_upgrade(app, trimmed) {
+    let (sudo_bypass, effective) = sudo_resolve(trimmed);
+
+    if let Some(lines) = run_purchased_upgrade(app, effective, sudo_bypass) {
         return RunResult {
             lines,
             echo_input: true,
         };
     }
 
-    let Some(cmd) = find_command(trimmed) else {
+    let Some(cmd) = find_command(effective) else {
         let mut lines = vec![TerminalLine::Output {
-            text: format!("bash: {trimmed}: command not found"),
+            text: format!("bash: {effective}: command not found"),
             style: OutputStyle::Error,
         }];
-        if let Some(suggestion) = suggest_command(trimmed, command_registry()) {
+        if let Some(suggestion) = suggest_command(effective, command_registry()) {
             lines.push(TerminalLine::Output {
                 text: format!("hint: did you mean '{suggestion}'?"),
                 style: OutputStyle::Info,
@@ -54,8 +73,8 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
         };
     };
 
-    if (cmd.locked)(app) {
-        let name = command_name_for_error(trimmed);
+    if !sudo_bypass && (cmd.locked)(app) {
+        let name = command_name_for_error(effective);
         return RunResult {
             lines: vec![
                 TerminalLine::Output {
@@ -90,7 +109,82 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
     }
 
     RunResult {
-        lines: (cmd.execute)(trimmed, app),
+        lines: (cmd.execute)(effective, app),
         echo_input: cmd.name != "clear",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{App, TerminalLine};
+    use crate::game::resources::ResourceKind;
+
+    #[test]
+    fn sudo_resolve_keeps_reset_command_literal() {
+        let line = "sudo rm -rf /*";
+        assert_eq!(sudo_resolve(line), (false, line));
+    }
+
+    #[test]
+    fn sudo_resolve_strips_when_inner_is_known_command() {
+        assert_eq!(
+            sudo_resolve("sudo apt install hdd"),
+            (true, "apt install hdd")
+        );
+    }
+
+    #[test]
+    fn sudo_apt_install_bypasses_lock_when_affordable() {
+        let mut app = App::new();
+        app
+            .game
+            .resources
+            .set(ResourceKind::Cycles, 500.0);
+
+        let denied = run("apt install hdd", &mut app);
+        assert!(
+            denied.lines.iter().any(|l| match l {
+                TerminalLine::Output { text, .. } => text.contains("Permission denied"),
+                _ => false,
+            }),
+            "expected permission denied without sudo"
+        );
+
+        let mut app = App::new();
+        app
+            .game
+            .resources
+            .set(ResourceKind::Cycles, 500.0);
+        let ok = run("sudo apt install hdd", &mut app);
+        assert!(
+            !ok.lines.iter().any(|l| match l {
+                TerminalLine::Output { text, .. } => text.contains("Permission denied"),
+                _ => false,
+            }),
+            "sudo should bypass apt install lock when affordable"
+        );
+    }
+
+    #[test]
+    fn sudo_apt_install_still_requires_cycles_when_not_affordable() {
+        let mut app = App::new();
+        app.game.resources.set(ResourceKind::Cycles, 0.0);
+
+        let out = run("sudo apt install hdd", &mut app);
+        assert!(
+            out.lines.iter().any(|l| match l {
+                TerminalLine::Output { text, .. } => text.contains("insufficient cycles"),
+                _ => false,
+            }),
+            "expected insufficient cycles when sudo bypasses lock but player cannot pay"
+        );
+        assert!(
+            !out.lines.iter().any(|l| match l {
+                TerminalLine::Output { text, .. } => text.contains("Permission denied"),
+                _ => false,
+            }),
+            "sudo should not fall back to permission denied when only cycles are missing"
+        );
     }
 }
