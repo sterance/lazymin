@@ -4,14 +4,15 @@ mod command_defs;
 mod locks;
 
 use crate::app::{App, OutputStyle, TerminalLine};
-use crate::format::{fmt_cycles, fmt_mb};
+use crate::format::{fmt_bandwidth, fmt_bytes, fmt_cycles, fmt_watts};
 use crate::game::log::push_log;
 use crate::game::producers::{
     all_producers, producer_cost, producer_def, ProducerKind,
 };
 use crate::game::resources::{
-    all_hardware, hardware_def, total_power_draw, total_reserved_bandwidth, total_reserved_disk,
-    total_reserved_ram, ResourceKind, KERNEL_DISK_MB, KERNEL_RAM_MB, KERNEL_WATTS,
+    all_hardware, apt_install_hardware_description, hardware_def, total_power_draw,
+    total_reserved_bandwidth, total_reserved_disk, total_reserved_ram, ResourceKind,
+    KERNEL_DISK_MB, KERNEL_RAM_MB, KERNEL_WATTS,
 };
 use crate::game::save;
 use crate::game::tick::{disk_log_growth_rate, grant_cycle_burst};
@@ -102,6 +103,7 @@ fn producer_cost_for(app: &App, kind: ProducerKind) -> f64 {
 
 fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
     let def = producer_def(kind);
+    let owned_before = app.game.producers.get(&kind).copied().unwrap_or(0);
 
     let reserved_ram = total_reserved_ram(&app.game.producers);
     let ram_cap = app.game.resources.cap(ResourceKind::Ram).unwrap_or(0.0);
@@ -121,21 +123,23 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
         ];
     }
 
-    let reserved_disk = total_reserved_disk(&app.game.producers);
-    let disk_cap = effective_disk_cap(&app.game);
-    if reserved_disk + def.disk_mb + app.game.disk_log_usage > disk_cap + 1e-6 {
-        app.game.hit_resource_gate = true;
-        let free = (disk_cap - reserved_disk - app.game.disk_log_usage).max(0.0);
-        return vec![
-            TerminalLine::Output {
-                text: format!(
-                    "insufficient disk space (need {:.0} MB, have {:.0} MB free)",
-                    def.disk_mb, free
-                ),
-                style: OutputStyle::Error,
-            },
-            TerminalLine::Blank,
-        ];
+    if owned_before == 0 {
+        let reserved_disk = total_reserved_disk(&app.game.producers);
+        let disk_cap = effective_disk_cap(&app.game);
+        if reserved_disk + def.disk_mb + app.game.disk_log_usage > disk_cap + 1e-6 {
+            app.game.hit_resource_gate = true;
+            let free = (disk_cap - reserved_disk - app.game.disk_log_usage).max(0.0);
+            return vec![
+                TerminalLine::Output {
+                    text: format!(
+                        "insufficient disk space (need {:.0} MB, have {:.0} MB free)",
+                        def.disk_mb, free
+                    ),
+                    style: OutputStyle::Error,
+                },
+                TerminalLine::Blank,
+            ];
+        }
     }
 
     if def.bw_mbps > 0.0 {
@@ -151,8 +155,9 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
             return vec![
                 TerminalLine::Output {
                     text: format!(
-                        "insufficient bandwidth (need {:.1} Mbps, have {:.1} Mbps free)",
-                        def.bw_mbps, free
+                        "insufficient bandwidth (need {}, have {} free)",
+                        fmt_bandwidth(def.bw_mbps),
+                        fmt_bandwidth(free)
                     ),
                     style: OutputStyle::Error,
                 },
@@ -161,7 +166,6 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
         }
     }
 
-    let owned_before = app.game.producers.get(&kind).copied().unwrap_or(0);
     let mut price = producer_cost(def, owned_before);
     if let Some(f) = app.game.pending_producer_cost_factors.pop_front() {
         price *= f;
@@ -174,16 +178,6 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
         .entry(kind)
         .and_modify(|count| *count += 1)
         .or_insert(1);
-
-    push_log(
-        &mut app.game.log,
-        app.game.uptime_secs,
-        format!(
-            "{} purchased -- +{:.0} cycles/s",
-            def.name.to_lowercase(),
-            def.base_cycles_per_s
-        ),
-    );
 
     vec![
         TerminalLine::Output {
@@ -234,11 +228,12 @@ fn buy_capacity(app: &mut App, kind: ResourceKind) -> Vec<TerminalLine> {
     if hw.watts > 0.0 && used_watts + hw.watts > watts_cap {
         let free_watts = (watts_cap - used_watts).max(0.0);
         return vec![
-            TerminalLine::Output {
-                text: format!(
-                    "power budget exceeded (need {:.1} W, have {:.1} W free)",
-                    hw.watts, free_watts
-                ),
+                TerminalLine::Output {
+                    text: format!(
+                        "power budget exceeded (need {}, have {} free)",
+                        fmt_watts(hw.watts),
+                        fmt_watts(free_watts)
+                    ),
                 style: OutputStyle::Error,
             },
             TerminalLine::Blank,
@@ -260,11 +255,6 @@ fn buy_capacity(app: &mut App, kind: ResourceKind) -> Vec<TerminalLine> {
         .or_insert(1);
 
     let cap = app.game.resources.cap(kind).unwrap_or(0.0);
-    push_log(
-        &mut app.game.log,
-        app.game.uptime_secs,
-        format!("{} capacity expanded", hw.label),
-    );
 
     vec![
         TerminalLine::Output {
@@ -295,7 +285,7 @@ fn cmd_help(_: &str, app: &mut App) -> Vec<TerminalLine> {
             pending_blank = false;
         }
         out.push(TerminalLine::Output {
-            text: format!("{} - {}", cmd.name, cmd.description),
+            text: format!("{} - {}", cmd.name, command_player_description(cmd)),
             style: OutputStyle::Info,
         });
     }
@@ -402,6 +392,12 @@ fn apt_install_resource(name: &str) -> Option<ResourceKind> {
     }
 }
 
+fn command_player_description(cmd: &CommandDef) -> String {
+    apt_install_resource(cmd.name)
+        .map(apt_install_hardware_description)
+        .unwrap_or_else(|| cmd.description.to_owned())
+}
+
 fn cmd_apt_install(_: &str, app: &mut App) -> Vec<TerminalLine> {
     let mut out = Vec::new();
     for &name in APT_INSTALL_ORDER {
@@ -419,7 +415,7 @@ fn cmd_apt_install(_: &str, app: &mut App) -> Vec<TerminalLine> {
             text: format!(
                 "{} - {} (next: {} cycles)",
                 name,
-                cmd.description,
+                command_player_description(cmd),
                 fmt_cycles(next)
             ),
             style: OutputStyle::Info,
@@ -488,7 +484,7 @@ fn cmd_ps_aux(_: &str, app: &mut App) -> Vec<TerminalLine> {
             "{:<6}{:<36}{:<12}{k_pct:>5.1}",
             1,
             "[kernel]",
-            fmt_mb(KERNEL_RAM_MB),
+            fmt_bytes(KERNEL_RAM_MB),
         ),
         style: OutputStyle::System,
     });
@@ -504,7 +500,7 @@ fn cmd_ps_aux(_: &str, app: &mut App) -> Vec<TerminalLine> {
                 text: format!(
                     "{pid:<6}{:<36}{:<12}{pct:>5.1}",
                     def.command,
-                    fmt_mb(def.ram_mb),
+                    fmt_bytes(def.ram_mb),
                 ),
                 style: OutputStyle::System,
             });
@@ -531,7 +527,7 @@ fn cmd_du(_: &str, app: &mut App) -> Vec<TerminalLine> {
 
     let mut reserved_total = KERNEL_DISK_MB;
     out.push(TerminalLine::Output {
-        text: format!("{:<44}{}", "/boot/vmlinuz", fmt_mb(KERNEL_DISK_MB)),
+        text: format!("{:<44}{}", "/boot/vmlinuz", fmt_bytes(KERNEL_DISK_MB)),
         style: OutputStyle::System,
     });
 
@@ -540,14 +536,9 @@ fn cmd_du(_: &str, app: &mut App) -> Vec<TerminalLine> {
         if count == 0 {
             continue;
         }
-        let mb = def.disk_mb * (count as f64);
-        reserved_total += mb;
+        reserved_total += def.disk_mb;
         out.push(TerminalLine::Output {
-            text: format!(
-                "{:<44}{}",
-                format!("{}  (×{count})", def.command),
-                fmt_mb(mb)
-            ),
+            text: format!("{:<44}{}", def.command, fmt_bytes(def.disk_mb)),
             style: OutputStyle::System,
         });
     }
@@ -556,12 +547,12 @@ fn cmd_du(_: &str, app: &mut App) -> Vec<TerminalLine> {
     if logs > 0.0 {
         let log_rate = disk_log_growth_rate(&app.game);
         let rate_suffix = if log_rate > 0.0 {
-            format!("  (+{}/s)", fmt_mb(log_rate))
+            format!("  (+{}/s)", fmt_bytes(log_rate))
         } else {
             String::new()
         };
         out.push(TerminalLine::Output {
-            text: format!("{:<44}{}{}", "/var/log", fmt_mb(logs), rate_suffix),
+            text: format!("{:<44}{}{}", "/var/log", fmt_bytes(logs), rate_suffix),
             style: OutputStyle::System,
         });
     }
@@ -570,7 +561,7 @@ fn cmd_du(_: &str, app: &mut App) -> Vec<TerminalLine> {
     let used = reserved_total + logs;
 
     out.push(TerminalLine::Output {
-        text: format!("{:<44}{} / {}", "total", fmt_mb(used), fmt_mb(disk_cap)),
+        text: format!("{:<44}{} / {}", "total", fmt_bytes(used), fmt_bytes(disk_cap)),
         style: OutputStyle::System,
     });
 
@@ -604,9 +595,9 @@ fn cmd_ifconfig(_: &str, app: &mut App) -> Vec<TerminalLine> {
         let mbps = def.bw_mbps * (count as f64);
         out.push(TerminalLine::Output {
             text: format!(
-                "{:<44}{:.1} Mbps",
+                "{:<44}{}",
                 format!("{}  (×{count})", def.command),
-                mbps
+                fmt_bandwidth(mbps)
             ),
             style: OutputStyle::System,
         });
@@ -616,7 +607,11 @@ fn cmd_ifconfig(_: &str, app: &mut App) -> Vec<TerminalLine> {
         any = true;
         let spare = (cap - reserved).max(0.0);
         out.push(TerminalLine::Output {
-            text: format!("{:<44}{:.1} Mbps free", "ssh remote harvest", spare),
+            text: format!(
+                "{:<44}{} free",
+                "ssh remote harvest",
+                fmt_bandwidth(spare)
+            ),
             style: OutputStyle::System,
         });
     }
@@ -628,7 +623,12 @@ fn cmd_ifconfig(_: &str, app: &mut App) -> Vec<TerminalLine> {
         });
     } else {
         out.push(TerminalLine::Output {
-            text: format!("{:<44}{:.1} / {:.1} Mbps", "total", reserved, cap),
+            text: format!(
+                "{:<44}{} / {}",
+                "total",
+                fmt_bandwidth(reserved),
+                fmt_bandwidth(cap)
+            ),
             style: OutputStyle::System,
         });
     }
@@ -645,7 +645,7 @@ fn cmd_lshw(_: &str, app: &mut App) -> Vec<TerminalLine> {
 
     let mut total_w = KERNEL_WATTS;
     out.push(TerminalLine::Output {
-        text: format!("{:<44}{:.1} W", "kernel", KERNEL_WATTS),
+        text: format!("{:<44}{}", "kernel", fmt_watts(KERNEL_WATTS)),
         style: OutputStyle::System,
     });
 
@@ -665,14 +665,23 @@ fn cmd_lshw(_: &str, app: &mut App) -> Vec<TerminalLine> {
         let w = hw.watts * (count as f64);
         total_w += w;
         out.push(TerminalLine::Output {
-            text: format!("{:<44}{:.1} W", format!("{}  (×{count})", hw.label), w),
+            text: format!(
+                "{:<44}{}",
+                format!("{}  (×{count})", hw.label),
+                fmt_watts(w)
+            ),
             style: OutputStyle::System,
         });
     }
 
     let watts_cap = app.game.resources.cap(ResourceKind::Watts).unwrap_or(0.0);
     out.push(TerminalLine::Output {
-        text: format!("{:<44}{:.1} / {:.1} W", "total", total_w, watts_cap),
+        text: format!(
+            "{:<44}{} / {}",
+            "total",
+            fmt_watts(total_w),
+            fmt_watts(watts_cap)
+        ),
         style: OutputStyle::System,
     });
 
@@ -898,11 +907,6 @@ pub fn run_purchased_upgrade(app: &mut App, trimmed: &str) -> Option<Vec<Termina
         grant_cycle_burst(&mut app.game, 60.0);
     }
 
-    push_log(
-        &mut app.game.log,
-        app.game.uptime_secs,
-        format!("upgrade installed: {}", u.command),
-    );
     Some(vec![
         TerminalLine::Output {
             text: format!("{} -- {}", u.command, u.description),

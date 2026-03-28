@@ -81,30 +81,32 @@ static BASE_COMMANDS: &[CommandDef] = &[
         cost: Some(super::os_takeover_cost),
         execute: super::cmd_buy_os_takeover,
     },
+    // apt install ram|hdd|nic|psu: description text is built from hardware cap_delta
+    // in crate::game::resources::apt_install_hardware_description (see command_player_description)
     CommandDef {
         name: "apt install ram",
-        description: "expand ram capacity (+256 MB)",
+        description: "",
         locked: lock_apt_install,
         cost: Some(super::apt_ram_cost),
         execute: super::cmd_buy_ram,
     },
     CommandDef {
         name: "apt install hdd",
-        description: "expand disk capacity (+1 GB)",
+        description: "",
         locked: lock_apt_install,
         cost: Some(super::apt_disk_cost),
         execute: super::cmd_buy_disk,
     },
     CommandDef {
         name: "apt install nic",
-        description: "expand bandwidth capacity (+10 Mbps)",
+        description: "",
         locked: lock_apt_install,
         cost: Some(super::apt_bw_cost),
         execute: super::cmd_buy_bw,
     },
     CommandDef {
         name: "apt install psu",
-        description: "expand power capacity (+50 W)",
+        description: "",
         locked: lock_apt_install,
         cost: Some(super::apt_watts_cost),
         execute: super::cmd_buy_watts,

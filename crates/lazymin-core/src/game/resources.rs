@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::format::{fmt_bandwidth, fmt_bytes, fmt_watts};
+
 use super::producers::producer_def;
 use super::producers::ProducerKind;
 
@@ -27,28 +29,28 @@ pub struct HardwareDef {
 const HARDWARE: [HardwareDef; 4] = [
     HardwareDef {
         kind: ResourceKind::Ram,
-        cap_delta: 256.0,
+        cap_delta: 16.0,
         base_cost: 50.0,
         watts: 1.0,
         label: "ram",
     },
     HardwareDef {
         kind: ResourceKind::Disk,
-        cap_delta: 1024.0,
+        cap_delta: 256.0,
         base_cost: 100.0,
         watts: 0.5,
         label: "disk",
     },
     HardwareDef {
         kind: ResourceKind::Bandwidth,
-        cap_delta: 10.0,
+        cap_delta: 1.0,
         base_cost: 200.0,
         watts: 2.0,
         label: "bandwidth",
     },
     HardwareDef {
         kind: ResourceKind::Watts,
-        cap_delta: 50.0,
+        cap_delta: 5.0,
         base_cost: 75.0,
         watts: 0.0,
         label: "power",
@@ -64,6 +66,25 @@ pub fn hardware_def(kind: ResourceKind) -> &'static HardwareDef {
         .iter()
         .find(|def| def.kind == kind)
         .expect("resource kind must map to capacity hardware")
+}
+
+pub fn apt_install_hardware_description(kind: ResourceKind) -> String {
+    let hw = hardware_def(kind);
+    match kind {
+        ResourceKind::Ram => format!("expand ram capacity (+{})", fmt_bytes(hw.cap_delta)),
+        ResourceKind::Disk => format!("expand disk capacity (+{})", fmt_bytes(hw.cap_delta)),
+        ResourceKind::Bandwidth => format!(
+            "expand bandwidth capacity (+{})",
+            fmt_bandwidth(hw.cap_delta)
+        ),
+        ResourceKind::Watts => format!(
+            "expand power capacity (+{})",
+            fmt_watts(hw.cap_delta)
+        ),
+        ResourceKind::Cycles | ResourceKind::Entropy => {
+            unreachable!("apt install hardware description: not a capacity hardware kind")
+        }
+    }
 }
 
 pub fn total_hardware_watts(purchases: &HashMap<ResourceKind, u32>) -> f64 {
@@ -187,7 +208,8 @@ pub fn total_reserved_disk(producers: &HashMap<ProducerKind, u32>) -> f64 {
     KERNEL_DISK_MB
         + producers
             .iter()
-            .map(|(kind, count)| producer_def(*kind).disk_mb * (*count as f64))
+            .filter(|(_, count)| **count > 0)
+            .map(|(kind, _)| producer_def(*kind).disk_mb)
             .sum::<f64>()
 }
 
@@ -196,4 +218,27 @@ pub fn total_reserved_bandwidth(producers: &HashMap<ProducerKind, u32>) -> f64 {
         .iter()
         .map(|(kind, count)| producer_def(*kind).bw_mbps * (*count as f64))
         .sum()
+}
+
+#[cfg(test)]
+mod apt_install_description_tests {
+    use super::*;
+
+    #[test]
+    fn ram_disk_use_fmt_bytes_style() {
+        let ram = apt_install_hardware_description(ResourceKind::Ram);
+        assert!(ram.starts_with("expand ram capacity (+"));
+        assert!(ram.ends_with(')'));
+        let disk = apt_install_hardware_description(ResourceKind::Disk);
+        assert!(disk.contains("expand disk capacity (+"));
+        assert!(disk.contains("GB") || disk.contains("MB"));
+    }
+
+    #[test]
+    fn bandwidth_and_watts_suffixes() {
+        let bw = apt_install_hardware_description(ResourceKind::Bandwidth);
+        assert!(bw.contains("Mbps"));
+        let w = apt_install_hardware_description(ResourceKind::Watts);
+        assert!(w.contains('W'));
+    }
 }

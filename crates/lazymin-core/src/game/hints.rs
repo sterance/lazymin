@@ -70,7 +70,7 @@ pub fn all_hints() -> Vec<HintDef> {
             follow_ups: vec![FollowUpDef {
                 delay_secs: 30.0,
                 text: "i really wish you would let me `help` you...",
-                repeating: false,
+                repeating: true,
             }],
         },
     ]

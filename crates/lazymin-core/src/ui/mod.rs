@@ -7,7 +7,9 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::{App, OutputStyle, TerminalLine};
-use crate::format::{canonicalize_zero, fmt_cycles, fmt_cycles_rate, fmt_mb};
+use crate::format::{
+    canonicalize_zero, fmt_bandwidth, fmt_bytes, fmt_cycles, fmt_cycles_rate, fmt_watts,
+};
 use crate::game::resources::{
     total_power_draw, total_reserved_bandwidth, total_reserved_disk, total_reserved_ram,
     ResourceKind,
@@ -81,25 +83,29 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
         )),
         Line::raw(format!(
             "mem      {} / {}",
-            fmt_mb(ram_used),
-            fmt_mb(ram_cap)
+            fmt_bytes(ram_used),
+            fmt_bytes(ram_cap)
         )),
         Line::raw(format!(
             "disk     {} / {}",
-            fmt_mb(disk_used),
-            fmt_mb(disk_cap),
+            fmt_bytes(disk_used),
+            fmt_bytes(disk_cap),
         )),
         Line::raw(format!(
-            "bw       {:.0} / {:.0} Mbps{}",
-            bw_used,
-            bw_cap,
+            "bw       {} / {}{}",
+            fmt_bandwidth(bw_used),
+            fmt_bandwidth(bw_cap),
             if app.game.remote_channel_active {
                 format!("  (remote +{}/s)", fmt_cycles_rate(remote_rate))
             } else {
                 String::new()
             }
         )),
-        Line::raw(format!("power    {:.1} W / {:.1} W", watts_used, watts_cap)),
+        Line::raw(format!(
+            "power    {} / {}",
+            fmt_watts(watts_used),
+            fmt_watts(watts_cap)
+        )),
         Line::raw(format!("entropy  {:.2}  (+{entropy_rate:.2}/s)", entropy)),
     ];
     let resources = Paragraph::new(resources_lines)

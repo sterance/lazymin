@@ -3,6 +3,7 @@ use crate::format::fmt_cycles;
 use crate::game::resources::ResourceKind;
 
 use super::commands::{command_registry, run_purchased_upgrade, CommandDef};
+use super::suggest::suggest_command;
 
 fn command_name_for_error(input: &str) -> &str {
     input.split_whitespace().next().unwrap_or(input)
@@ -11,16 +12,6 @@ fn command_name_for_error(input: &str) -> &str {
 fn find_command<'a>(input: &'a str) -> Option<&'a CommandDef> {
     let trimmed = input.trim_end();
     command_registry().iter().find(|cmd| cmd.name == trimmed)
-}
-
-fn is_harvest_typo(input: &str) -> bool {
-    let trimmed = input.trim();
-    if trimmed == "harvest.sh &" {
-        return false;
-    }
-
-    let compact: String = trimmed.chars().filter(|ch| !ch.is_whitespace()).collect();
-    compact == "harvest.sh&" || compact == "./harvest.sh&"
 }
 
 pub struct RunResult {
@@ -49,9 +40,9 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
             text: format!("bash: {trimmed}: command not found"),
             style: OutputStyle::Error,
         }];
-        if is_harvest_typo(trimmed) {
+        if let Some(suggestion) = suggest_command(trimmed, command_registry()) {
             lines.push(TerminalLine::Output {
-                text: "hint: did you mean 'harvest.sh &'?".to_owned(),
+                text: format!("hint: did you mean '{suggestion}'?"),
                 style: OutputStyle::Info,
             });
         }
