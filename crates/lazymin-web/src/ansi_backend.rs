@@ -67,8 +67,14 @@ impl AnsiBackend {
         use SetAttribute as Set;
 
         if to_set.contains(Modifier::BOLD) {
+            if to_del.contains(Modifier::DIM) {
+                self.push(Set(AA::Normal))?;
+            }
             self.push(Set(AA::Bold))?;
         } else if to_set.contains(Modifier::DIM) {
+            if to_del.contains(Modifier::BOLD) {
+                self.push(Set(AA::Normal))?;
+            }
             self.push(Set(AA::Faint))?;
         } else if to_del.contains(Modifier::DIM) || to_del.contains(Modifier::BOLD) {
             self.push(Set(AA::Normal))?;

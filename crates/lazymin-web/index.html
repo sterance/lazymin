@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css"/>
   <link data-trunk rel="rust" href="Cargo.toml" data-wasm-opt="z"/>
   <style>
-    html, body { margin: 0; padding: 0; overflow: hidden; background: #0d1117; height: 100%; width: 100%; }
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #000000; height: 100%; width: 100%; }
     #terminal { height: 100%; width: 100%; }
     .xterm { height: 100% !important; }
     .xterm-viewport::-webkit-scrollbar { display: none; }
@@ -30,7 +30,7 @@
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
         fontSize: 14,
         theme: {
-          background: '#0d1117',
+          background: '#000000',
           foreground: '#3fb950',
           cursor: '#3fb950',
         },
@@ -38,6 +38,7 @@
       term.loadAddon(fitAddon);
       term.open(container);
       fitAddon.fit();
+      term.focus();
       window.addEventListener('resize', () => fitAddon.fit());
 
       const write = (bytes) => {
