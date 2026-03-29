@@ -377,7 +377,7 @@ const ALL: &[UpgradeDef] = &[
     },
     UpgradeDef {
         kind: UpgradeKind::JournaldVacuum,
-        command: "journald --vacuum-size",
+        command: "jvacuum",
         cycles_cost: 500.0,
         entropy_cost: 0.0,
         description: "clear accumulated log disk usage",

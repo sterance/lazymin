@@ -1,5 +1,7 @@
 // registry entries map input to named effects (`bypasses_permission_lock`, etc.); permission_lock.rs,
-// execute.rs, and highlight.rs apply it (sudo bypass, -max purchase loop, etc.).
+// execute.rs, and highlight.rs apply it (sudo bypass, -max / ` *n` purchase loops, etc.).
+
+use std::num::NonZeroU32;
 
 use crate::game::upgrades::upgrade_by_command;
 use crate::terminal::commands::command_registry;
@@ -31,6 +33,42 @@ impl CommandModifiers {
     fn insert(&mut self, k: ModifierKind) {
         self.0 |= 1u8 << k as u8;
     }
+
+    fn remove(&mut self, k: ModifierKind) {
+        self.0 &= !(1u8 << k as u8);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PurchaseRepeat {
+    #[default]
+    Once,
+    Max,
+    Times(NonZeroU32),
+}
+
+fn strip_star_repeat_suffix(s: &str) -> Option<(&str, NonZeroU32)> {
+    let mut i = s.len();
+    while i > 0 && s.as_bytes()[i - 1].is_ascii_digit() {
+        i -= 1;
+    }
+    if i == s.len() {
+        return None;
+    }
+    let digit_start = i;
+    if digit_start == 0 || s.as_bytes()[digit_start - 1] != b'*' {
+        return None;
+    }
+    if digit_start < 2 || s.as_bytes()[digit_start - 2] != b' ' {
+        return None;
+    }
+    let prefix_len = digit_start - 2;
+    if prefix_len == 0 {
+        return None;
+    }
+    let n: u32 = s[digit_start..].parse().ok()?;
+    let n = NonZeroU32::new(n)?;
+    Some((&s[..prefix_len], n))
 }
 
 impl FromIterator<ModifierKind> for CommandModifiers {
@@ -44,54 +82,67 @@ impl FromIterator<ModifierKind> for CommandModifiers {
 }
 
 #[derive(Clone, Copy)]
-struct SuffixModifier {
-    suffix: &'static str,
-    effect: ModifierKind,
-}
-
-#[derive(Clone, Copy)]
 struct PrefixModifier {
     prefix: &'static str,
     effect: ModifierKind,
 }
 
-static SUFFIX_MODIFIERS: &[SuffixModifier] = &[
-    // repeat buy until a resource gate
-    SuffixModifier {
-        suffix: " -max",
-        effect: enables_max_purchase_loop,
-    },
-];
+static PREFIX_MODIFIERS: &[PrefixModifier] = &[PrefixModifier {
+    prefix: "sudo ",
+    effect: bypasses_permission_lock,
+}];
 
-static PREFIX_MODIFIERS: &[PrefixModifier] = &[
-    // skip certain unlock checks for this run
-    PrefixModifier {
-        prefix: "sudo ",
-        effect: bypasses_permission_lock,
-    },
-];
+fn strip_repeat_suffixes<'a>(mut s: &'a str, mods: &mut CommandModifiers) -> (PurchaseRepeat, &'a str) {
+    let mut saw_max = false;
+    let mut times: Option<NonZeroU32> = None;
 
-pub fn resolve_modifiers(trimmed: &str) -> (CommandModifiers, &str) {
-    if is_known_command_or_upgrade(trimmed) {
-        return (CommandModifiers::default(), trimmed);
-    }
-
-    let mut mods = CommandModifiers::default();
-    let mut s = trimmed;
-
-    for def in SUFFIX_MODIFIERS {
-        if let Some(rest) = s.strip_suffix(def.suffix) {
+    loop {
+        let mut progressed = false;
+        if let Some((rest, n)) = strip_star_repeat_suffix(s) {
             if !rest.is_empty() {
-                mods.insert(def.effect);
                 s = rest;
+                times = Some(n);
+                progressed = true;
             }
+        }
+        if let Some(rest) = s.strip_suffix(" -max") {
+            if !rest.is_empty() {
+                s = rest;
+                saw_max = true;
+                mods.insert(ModifierKind::Max);
+                progressed = true;
+            }
+        }
+        if !progressed {
+            break;
         }
     }
 
-    if is_known_command_or_upgrade(s) {
-        return (mods, s);
+    let repeat = if let Some(n) = times {
+        mods.remove(ModifierKind::Max);
+        PurchaseRepeat::Times(n)
+    } else if saw_max {
+        PurchaseRepeat::Max
+    } else {
+        PurchaseRepeat::Once
+    };
+
+    (repeat, s)
+}
+
+pub fn resolve_modifiers(trimmed: &str) -> (CommandModifiers, PurchaseRepeat, &str) {
+    if is_known_command_or_upgrade(trimmed) {
+        return (CommandModifiers::default(), PurchaseRepeat::Once, trimmed);
     }
 
+    let mut mods = CommandModifiers::default();
+    let (repeat, s) = strip_repeat_suffixes(trimmed, &mut mods);
+
+    if is_known_command_or_upgrade(s) {
+        return (mods, repeat, s);
+    }
+
+    let mut s = s;
     for def in PREFIX_MODIFIERS {
         if let Some(rest) = s.strip_prefix(def.prefix) {
             if !rest.is_empty() {
@@ -102,5 +153,5 @@ pub fn resolve_modifiers(trimmed: &str) -> (CommandModifiers, &str) {
         }
     }
 
-    (mods, s)
+    (mods, repeat, s)
 }

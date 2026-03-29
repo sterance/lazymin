@@ -22,7 +22,7 @@ pub fn classify_input(input: &str, app: &App) -> InputHighlight {
         return InputHighlight::Unknown;
     }
 
-    let (mods, effective) = resolve_modifiers(normalized);
+    let (mods, _purchase_repeat, effective) = resolve_modifiers(normalized);
 
     if let Some(u) = upgrade_by_command(effective) {
         if upgrade_unlock_blocked(&mods, &app.game, u.kind)

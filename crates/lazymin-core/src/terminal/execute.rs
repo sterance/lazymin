@@ -1,6 +1,6 @@
 pub use super::command_modifiers::{
     bypasses_permission_lock, enables_max_purchase_loop, CommandModifiers, ModifierKind,
-    resolve_modifiers,
+    PurchaseRepeat, resolve_modifiers,
 };
 
 use crate::app::{App, OutputStyle, TerminalLine};
@@ -8,7 +8,7 @@ use crate::format::fmt_cycles;
 use crate::game::resources::ResourceKind;
 
 use super::commands::{command_registry, run_purchased_upgrade, CommandDef};
-use super::max_purchase::run_max_purchases;
+use super::max_purchase::{run_costless_repeats, run_limited_purchases, run_max_purchases};
 use super::permission_lock::{bypass_upgrade_unlock_check, registry_command_blocked};
 use super::suggest::suggest_command;
 
@@ -34,7 +34,7 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
         };
     }
 
-    let (mods, effective) = resolve_modifiers(trimmed);
+    let (mods, purchase_repeat, effective) = resolve_modifiers(trimmed);
 
     if let Some(lines) = run_purchased_upgrade(app, effective, bypass_upgrade_unlock_check(&mods)) {
         return RunResult {
@@ -76,11 +76,26 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
         };
     }
 
-    if mods.has(enables_max_purchase_loop) && cmd.cost.is_some() {
-        return RunResult {
-            lines: run_max_purchases(effective, cmd, app),
-            echo_input: cmd.name != "clear",
-        };
+    match purchase_repeat {
+        PurchaseRepeat::Max if cmd.cost.is_some() => {
+            return RunResult {
+                lines: run_max_purchases(effective, cmd, app),
+                echo_input: cmd.name != "clear",
+            };
+        }
+        PurchaseRepeat::Times(n) if cmd.cost.is_some() => {
+            return RunResult {
+                lines: run_limited_purchases(effective, cmd, app, n),
+                echo_input: cmd.name != "clear",
+            };
+        }
+        PurchaseRepeat::Times(n) if cmd.cost.is_none() => {
+            return RunResult {
+                lines: run_costless_repeats(effective, cmd, app, n),
+                echo_input: cmd.name != "clear",
+            };
+        }
+        _ => {}
     }
 
     if let Some(cost_fn) = cmd.cost {
@@ -112,6 +127,8 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU32;
+
     use super::*;
     use crate::app::{App, TerminalLine};
     use crate::game::resources::ResourceKind;
@@ -121,7 +138,7 @@ mod tests {
         let line = "sudo rm -rf /*";
         assert_eq!(
             resolve_modifiers(line),
-            (CommandModifiers::default(), line)
+            (CommandModifiers::default(), PurchaseRepeat::Once, line)
         );
     }
 
@@ -131,6 +148,7 @@ mod tests {
             resolve_modifiers("sudo apt install hdd"),
             (
                 [ModifierKind::Sudo].into_iter().collect::<CommandModifiers>(),
+                PurchaseRepeat::Once,
                 "apt install hdd"
             )
         );
@@ -142,6 +160,46 @@ mod tests {
             resolve_modifiers("apt install ram -max"),
             (
                 [ModifierKind::Max].into_iter().collect::<CommandModifiers>(),
+                PurchaseRepeat::Max,
+                "apt install ram"
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_modifiers_strips_star_repeat_suffix() {
+        let n = NonZeroU32::new(3).unwrap();
+        assert_eq!(
+            resolve_modifiers("apt install ram *3"),
+            (
+                CommandModifiers::default(),
+                PurchaseRepeat::Times(n),
+                "apt install ram"
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_modifiers_sudo_and_star_suffix() {
+        let n = NonZeroU32::new(2).unwrap();
+        assert_eq!(
+            resolve_modifiers("sudo apt install ram *2"),
+            (
+                [ModifierKind::Sudo].into_iter().collect::<CommandModifiers>(),
+                PurchaseRepeat::Times(n),
+                "apt install ram"
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_modifiers_max_then_star_last_repeat_wins() {
+        let n = NonZeroU32::new(5).unwrap();
+        assert_eq!(
+            resolve_modifiers("apt install ram *5 -max"),
+            (
+                CommandModifiers::default(),
+                PurchaseRepeat::Times(n),
                 "apt install ram"
             )
         );
@@ -155,9 +213,107 @@ mod tests {
                 [ModifierKind::Sudo, ModifierKind::Max]
                     .into_iter()
                     .collect::<CommandModifiers>(),
+                PurchaseRepeat::Max,
                 "apt install ram"
             )
         );
+    }
+
+    #[test]
+    fn resolve_modifiers_apt_install_ram_all_suffix_prefix_permutations() {
+        let effective = "apt install ram";
+        let n = NonZeroU32::new(7).unwrap();
+        let sudo: CommandModifiers = [ModifierKind::Sudo].into_iter().collect();
+        let max: CommandModifiers = [ModifierKind::Max].into_iter().collect();
+        let sudo_max: CommandModifiers = [ModifierKind::Sudo, ModifierKind::Max]
+            .into_iter()
+            .collect();
+
+        let cases: &[(&str, CommandModifiers, PurchaseRepeat)] = &[
+            ("apt install ram", CommandModifiers::default(), PurchaseRepeat::Once),
+            ("sudo apt install ram", sudo, PurchaseRepeat::Once),
+            ("apt install ram -max", max, PurchaseRepeat::Max),
+            ("sudo apt install ram -max", sudo_max, PurchaseRepeat::Max),
+            ("apt install ram *7", CommandModifiers::default(), PurchaseRepeat::Times(n)),
+            ("sudo apt install ram *7", sudo, PurchaseRepeat::Times(n)),
+            ("apt install ram *7 -max", CommandModifiers::default(), PurchaseRepeat::Times(n)),
+            ("sudo apt install ram *7 -max", sudo, PurchaseRepeat::Times(n)),
+            ("apt install ram -max *7", CommandModifiers::default(), PurchaseRepeat::Times(n)),
+            ("sudo apt install ram -max *7", sudo, PurchaseRepeat::Times(n)),
+        ];
+
+        for &(input, ref want_mods, want_repeat) in cases {
+            let (m, r, eff) = resolve_modifiers(input);
+            assert_eq!(eff, effective, "input={input:?}");
+            assert_eq!(r, want_repeat, "input={input:?}");
+            assert_eq!(&m, want_mods, "input={input:?}");
+        }
+    }
+
+    #[test]
+    fn resolve_modifiers_harvest_sh_all_suffix_prefix_permutations() {
+        let effective = "harvest.sh";
+        let n = NonZeroU32::new(3).unwrap();
+        let sudo: CommandModifiers = [ModifierKind::Sudo].into_iter().collect();
+        let max: CommandModifiers = [ModifierKind::Max].into_iter().collect();
+        let sudo_max: CommandModifiers = [ModifierKind::Sudo, ModifierKind::Max]
+            .into_iter()
+            .collect();
+
+        let cases: &[(&str, CommandModifiers, PurchaseRepeat)] = &[
+            ("harvest.sh", CommandModifiers::default(), PurchaseRepeat::Once),
+            ("sudo harvest.sh", sudo, PurchaseRepeat::Once),
+            ("harvest.sh -max", max, PurchaseRepeat::Max),
+            ("sudo harvest.sh -max", sudo_max, PurchaseRepeat::Max),
+            ("harvest.sh *3", CommandModifiers::default(), PurchaseRepeat::Times(n)),
+            ("sudo harvest.sh *3", sudo, PurchaseRepeat::Times(n)),
+            ("harvest.sh *3 -max", CommandModifiers::default(), PurchaseRepeat::Times(n)),
+            ("sudo harvest.sh *3 -max", sudo, PurchaseRepeat::Times(n)),
+            ("harvest.sh -max *3", CommandModifiers::default(), PurchaseRepeat::Times(n)),
+            ("sudo harvest.sh -max *3", sudo, PurchaseRepeat::Times(n)),
+        ];
+
+        for &(input, ref want_mods, want_repeat) in cases {
+            let (m, r, eff) = resolve_modifiers(input);
+            assert_eq!(eff, effective, "input={input:?}");
+            assert_eq!(r, want_repeat, "input={input:?}");
+            assert_eq!(&m, want_mods, "input={input:?}");
+        }
+    }
+
+    #[test]
+    fn resolve_modifiers_redundant_star_max_star_still_resolves() {
+        let n = NonZeroU32::new(2).unwrap();
+        assert_eq!(
+            resolve_modifiers("apt install ram *2 -max *2"),
+            (
+                CommandModifiers::default(),
+                PurchaseRepeat::Times(n),
+                "apt install ram"
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_modifiers_sudo_visudo_all_suffix_permutations() {
+        let effective = "sudo visudo";
+        let n = NonZeroU32::new(4).unwrap();
+        let max: CommandModifiers = [ModifierKind::Max].into_iter().collect();
+
+        let cases: &[(&str, CommandModifiers, PurchaseRepeat)] = &[
+            ("sudo visudo", CommandModifiers::default(), PurchaseRepeat::Once),
+            ("sudo visudo -max", max, PurchaseRepeat::Max),
+            ("sudo visudo *4", CommandModifiers::default(), PurchaseRepeat::Times(n)),
+            ("sudo visudo *4 -max", CommandModifiers::default(), PurchaseRepeat::Times(n)),
+            ("sudo visudo -max *4", CommandModifiers::default(), PurchaseRepeat::Times(n)),
+        ];
+
+        for &(input, ref want_mods, want_repeat) in cases {
+            let (m, r, eff) = resolve_modifiers(input);
+            assert_eq!(eff, effective, "input={input:?}");
+            assert_eq!(r, want_repeat, "input={input:?}");
+            assert_eq!(&m, want_mods, "input={input:?}");
+        }
     }
 
     #[test]
@@ -165,7 +321,7 @@ mod tests {
         let u = "sudo visudo";
         assert_eq!(
             resolve_modifiers(u),
-            (CommandModifiers::default(), u)
+            (CommandModifiers::default(), PurchaseRepeat::Once, u)
         );
     }
 
@@ -175,6 +331,7 @@ mod tests {
             resolve_modifiers("sudo visudo -max"),
             (
                 [ModifierKind::Max].into_iter().collect::<CommandModifiers>(),
+                PurchaseRepeat::Max,
                 "sudo visudo"
             )
         );
@@ -310,5 +467,58 @@ mod tests {
         let before = app.game.manual_runs;
         run("harvest.sh -max", &mut app);
         assert_eq!(app.game.manual_runs, before + 1);
+    }
+
+    #[test]
+    fn times_completes_without_capped_by() {
+        let mut app = App::new();
+        app.game.resources.set(ResourceKind::Cycles, 1_000_000.0);
+        app.game.resources.set_cap(ResourceKind::Watts, 1_000.0);
+
+        let out = run("sudo apt install ram *3", &mut app);
+        let joined: String = out
+            .lines
+            .iter()
+            .filter_map(|l| match l {
+                TerminalLine::Output { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            joined.contains("x3:") && !joined.contains("capped by:"),
+            "expected x3 summary without cap: {joined}"
+        );
+    }
+
+    #[test]
+    fn times_stops_early_with_capped_by_like_max() {
+        let mut app = App::new();
+        app.game.resources.set(ResourceKind::Cycles, 200.0);
+        app.game.resources.set_cap(ResourceKind::Watts, 1_000.0);
+
+        let out = run("sudo apt install ram *99", &mut app);
+        let joined: String = out
+            .lines
+            .iter()
+            .filter_map(|l| match l {
+                TerminalLine::Output { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            joined.contains("capped by:") && joined.contains("insufficient cycles"),
+            "expected cap when cycles run out before limit: {joined}"
+        );
+    }
+
+    #[test]
+    fn times_on_costless_runs_n_times() {
+        let mut app = App::new();
+        let before = app.game.manual_runs;
+        let n = NonZeroU32::new(4).unwrap();
+        run(&format!("harvest.sh *{}", n.get()), &mut app);
+        assert_eq!(app.game.manual_runs, before + n.get() as u64);
     }
 }

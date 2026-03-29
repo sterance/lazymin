@@ -66,7 +66,7 @@ const APT_UPDATE_ORDER: &[&str] = &[
     "mktemp -d",
     "dd if=/dev/urandom of=/dev/sda",
     "reboot --firmware",
-    "journald --vacuum-size",
+    "jvacuum",
 ];
 
 const UPGRADES_ORDER: &[&str] = &[
