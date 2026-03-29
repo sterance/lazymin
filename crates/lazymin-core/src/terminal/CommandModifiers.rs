@@ -22,6 +22,62 @@ pub const bypasses_permission_lock: ModifierKind = ModifierKind::Sudo;
 #[allow(non_upper_case_globals)]
 pub const enables_max_purchase_loop: ModifierKind = ModifierKind::Max;
 
+#[derive(Clone, Copy)]
+struct PrefixModifier {
+    prefix: &'static str,
+    effect: ModifierKind,
+}
+
+#[derive(Clone, Copy)]
+enum PurchaseLoopSuffix {
+    RepeatCount,
+    Max,
+}
+
+#[allow(non_upper_case_globals)]
+const enables_purchase_loop_repeat: PurchaseLoopSuffix = PurchaseLoopSuffix::RepeatCount;
+#[allow(non_upper_case_globals)]
+const enables_purchase_loop_max: PurchaseLoopSuffix = PurchaseLoopSuffix::Max;
+
+#[derive(Clone, Copy)]
+enum SuffixModifier {
+    StarRepeat {
+        #[allow(dead_code)]
+        suffix: &'static str,
+        effect: PurchaseLoopSuffix,
+    },
+    Literal {
+        suffix: &'static str,
+        effect: PurchaseLoopSuffix,
+    },
+}
+
+
+// ----- PREFIX MODIFIERS -----
+
+static PREFIX_MODIFIERS: &[PrefixModifier] = &[PrefixModifier {
+    prefix: "sudo ",
+    effect: bypasses_permission_lock,
+}];
+
+
+// ----- SUFFFIX MODIFIERS -----
+
+static SUFFIX_MODIFIERS: &[SuffixModifier] = &[
+    SuffixModifier::StarRepeat {
+        suffix: " *n",
+        effect: enables_purchase_loop_repeat,
+    },
+    SuffixModifier::Literal {
+        suffix: " -max",
+        effect: enables_purchase_loop_max,
+    },
+];
+
+
+
+
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct CommandModifiers(u8);
 
@@ -81,36 +137,37 @@ impl FromIterator<ModifierKind> for CommandModifiers {
     }
 }
 
-#[derive(Clone, Copy)]
-struct PrefixModifier {
-    prefix: &'static str,
-    effect: ModifierKind,
-}
-
-static PREFIX_MODIFIERS: &[PrefixModifier] = &[PrefixModifier {
-    prefix: "sudo ",
-    effect: bypasses_permission_lock,
-}];
-
 fn strip_repeat_suffixes<'a>(mut s: &'a str, mods: &mut CommandModifiers) -> (PurchaseRepeat, &'a str) {
     let mut saw_max = false;
     let mut times: Option<NonZeroU32> = None;
 
     loop {
         let mut progressed = false;
-        if let Some((rest, n)) = strip_star_repeat_suffix(s) {
-            if !rest.is_empty() {
-                s = rest;
-                times = Some(n);
-                progressed = true;
-            }
-        }
-        if let Some(rest) = s.strip_suffix(" -max") {
-            if !rest.is_empty() {
-                s = rest;
-                saw_max = true;
-                mods.insert(ModifierKind::Max);
-                progressed = true;
+        for def in SUFFIX_MODIFIERS {
+            match def {
+                SuffixModifier::StarRepeat { effect, .. } => {
+                    debug_assert!(matches!(effect, PurchaseLoopSuffix::RepeatCount));
+                    if let Some((rest, n)) = strip_star_repeat_suffix(s) {
+                        if !rest.is_empty() {
+                            s = rest;
+                            times = Some(n);
+                            progressed = true;
+                            break;
+                        }
+                    }
+                }
+                SuffixModifier::Literal { suffix, effect } => {
+                    debug_assert!(matches!(effect, PurchaseLoopSuffix::Max));
+                    if let Some(rest) = s.strip_suffix(suffix) {
+                        if !rest.is_empty() {
+                            s = rest;
+                            mods.insert(enables_max_purchase_loop);
+                            saw_max = true;
+                            progressed = true;
+                            break;
+                        }
+                    }
+                }
             }
         }
         if !progressed {
