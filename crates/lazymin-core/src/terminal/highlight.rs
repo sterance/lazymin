@@ -1,11 +1,12 @@
 use crate::app::App;
 use crate::game::resources::ResourceKind;
 use crate::game::upgrades::{
-    all_upgrades, burst_upgrade_cost, is_burst_upgrade, upgrade_by_command, upgrade_unlocked,
+    all_upgrades, burst_upgrade_cost, is_burst_upgrade, upgrade_by_command,
 };
 
+use super::command_modifiers::resolve_modifiers;
 use super::commands::command_registry;
-use super::execute::{resolve_modifiers, ModifierKind};
+use super::permission_lock::{registry_command_blocked, upgrade_unlock_blocked};
 
 pub enum InputHighlight {
     Unknown,
@@ -24,7 +25,7 @@ pub fn classify_input(input: &str, app: &App) -> InputHighlight {
     let (mods, effective) = resolve_modifiers(normalized);
 
     if let Some(u) = upgrade_by_command(effective) {
-        if (!mods.has(ModifierKind::Sudo) && !upgrade_unlocked(&app.game, u.kind))
+        if upgrade_unlock_blocked(&mods, &app.game, u.kind)
             || (!is_burst_upgrade(u.kind) && app.game.purchased_upgrades.contains(&u.kind))
         {
             return InputHighlight::LockedCommand;
@@ -51,7 +52,7 @@ pub fn classify_input(input: &str, app: &App) -> InputHighlight {
     let mut partial = false;
     for cmd in command_registry() {
         if cmd.name == effective {
-            if !mods.has(ModifierKind::Sudo) && (cmd.locked)(app) {
+            if registry_command_blocked(&mods, cmd, app) {
                 return InputHighlight::LockedCommand;
             }
             if let Some(cost_fn) = cmd.cost {

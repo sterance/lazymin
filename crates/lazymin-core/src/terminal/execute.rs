@@ -1,13 +1,15 @@
-#[path = "CommandModifiers.rs"]
-mod command_modifiers;
-
-pub use command_modifiers::{CommandModifiers, ModifierKind, resolve_modifiers};
+pub use super::command_modifiers::{
+    bypasses_permission_lock, enables_max_purchase_loop, CommandModifiers, ModifierKind,
+    resolve_modifiers,
+};
 
 use crate::app::{App, OutputStyle, TerminalLine};
 use crate::format::fmt_cycles;
 use crate::game::resources::ResourceKind;
 
 use super::commands::{command_registry, run_purchased_upgrade, CommandDef};
+use super::max_purchase::run_max_purchases;
+use super::permission_lock::{bypass_upgrade_unlock_check, registry_command_blocked};
 use super::suggest::suggest_command;
 
 fn command_name_for_error(input: &str) -> &str {
@@ -16,79 +18,6 @@ fn command_name_for_error(input: &str) -> &str {
 
 fn find_command<'a>(input: &'a str) -> Option<&'a CommandDef> {
     command_registry().iter().find(|cmd| cmd.name == input)
-}
-
-fn run_max_purchases(effective: &str, cmd: &CommandDef, app: &mut App) -> Vec<TerminalLine> {
-    let cost_fn = cmd.cost.expect("run_max_purchases requires cost");
-    let mut count = 0usize;
-    let mut last_ok_text = String::new();
-
-    loop {
-        let price = cost_fn(app);
-        let cycles = app.game.resources.get(ResourceKind::Cycles);
-        if cycles < price {
-            if count == 0 {
-                return vec![
-                    TerminalLine::Output {
-                        text: format!(
-                            "insufficient cycles (need {}, have {})",
-                            fmt_cycles(price),
-                            fmt_cycles(cycles)
-                        ),
-                        style: OutputStyle::Error,
-                    },
-                    TerminalLine::Blank,
-                ];
-            }
-            let cap = format!(
-                "insufficient cycles (need {}, have {})",
-                fmt_cycles(price),
-                fmt_cycles(cycles)
-            );
-            return vec![
-                TerminalLine::Output {
-                    text: format!("x{count}: {last_ok_text} (capped by: {cap})"),
-                    style: OutputStyle::System,
-                },
-                TerminalLine::Blank,
-            ];
-        }
-
-        let lines = (cmd.execute)(effective, app);
-        let err_text = lines.iter().find_map(|l| match l {
-            TerminalLine::Output {
-                text,
-                style: OutputStyle::Error,
-            } => Some(text.as_str()),
-            _ => None,
-        });
-
-        if let Some(err) = err_text {
-            if count == 0 {
-                return lines;
-            }
-            return vec![
-                TerminalLine::Output {
-                    text: format!("x{count}: {last_ok_text} (capped by: {err})"),
-                    style: OutputStyle::System,
-                },
-                TerminalLine::Blank,
-            ];
-        }
-
-        let ok_text = lines
-            .iter()
-            .find_map(|l| match l {
-                TerminalLine::Output {
-                    text,
-                    style: OutputStyle::System,
-                } => Some(text.clone()),
-                _ => None,
-            })
-            .unwrap_or_default();
-        last_ok_text = ok_text;
-        count += 1;
-    }
 }
 
 pub struct RunResult {
@@ -107,7 +36,7 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
 
     let (mods, effective) = resolve_modifiers(trimmed);
 
-    if let Some(lines) = run_purchased_upgrade(app, effective, mods.has(ModifierKind::Sudo)) {
+    if let Some(lines) = run_purchased_upgrade(app, effective, bypass_upgrade_unlock_check(&mods)) {
         return RunResult {
             lines,
             echo_input: true,
@@ -133,7 +62,7 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
         };
     };
 
-    if !mods.has(ModifierKind::Sudo) && (cmd.locked)(app) {
+    if registry_command_blocked(&mods, cmd, app) {
         let name = command_name_for_error(effective);
         return RunResult {
             lines: vec![
@@ -147,7 +76,7 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
         };
     }
 
-    if mods.has(ModifierKind::Max) && cmd.cost.is_some() {
+    if mods.has(enables_max_purchase_loop) && cmd.cost.is_some() {
         return RunResult {
             lines: run_max_purchases(effective, cmd, app),
             echo_input: cmd.name != "clear",
