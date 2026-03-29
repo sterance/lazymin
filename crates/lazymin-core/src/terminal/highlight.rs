@@ -5,7 +5,7 @@ use crate::game::upgrades::{
 };
 
 use super::commands::command_registry;
-use super::execute::sudo_resolve;
+use super::execute::{resolve_modifiers, ModifierKind};
 
 pub enum InputHighlight {
     Unknown,
@@ -21,10 +21,10 @@ pub fn classify_input(input: &str, app: &App) -> InputHighlight {
         return InputHighlight::Unknown;
     }
 
-    let (sudo_bypass, effective) = sudo_resolve(normalized);
+    let (mods, effective) = resolve_modifiers(normalized);
 
     if let Some(u) = upgrade_by_command(effective) {
-        if (!sudo_bypass && !upgrade_unlocked(&app.game, u.kind))
+        if (!mods.has(ModifierKind::Sudo) && !upgrade_unlocked(&app.game, u.kind))
             || (!is_burst_upgrade(u.kind) && app.game.purchased_upgrades.contains(&u.kind))
         {
             return InputHighlight::LockedCommand;
@@ -51,7 +51,7 @@ pub fn classify_input(input: &str, app: &App) -> InputHighlight {
     let mut partial = false;
     for cmd in command_registry() {
         if cmd.name == effective {
-            if !sudo_bypass && (cmd.locked)(app) {
+            if !mods.has(ModifierKind::Sudo) && (cmd.locked)(app) {
                 return InputHighlight::LockedCommand;
             }
             if let Some(cost_fn) = cmd.cost {

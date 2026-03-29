@@ -141,14 +141,14 @@ static BASE_COMMANDS: &[CommandDef] = &[
     },
     CommandDef {
         name: "apt update",
-        description: "list one-shot package upgrades",
+        description: "list one-shot upgrades",
         locked: lock_apt_update,
         cost: None,
         execute: super::cmd_apt_update,
     },
     CommandDef {
         name: "apt upgrade",
-        description: "list permanent package upgrades",
+        description: "list permanent upgrades",
         locked: lock_apt_upgrade,
         cost: None,
         execute: super::cmd_upgrades,
