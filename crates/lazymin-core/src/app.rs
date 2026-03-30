@@ -6,6 +6,7 @@ use crate::game::save;
 use crate::game::state::GameState;
 use crate::game::tick;
 use crate::input::InputEvent;
+use crate::terminal::highlight::{classify_input, InputHighlight};
 
 const MAX_TERMINAL_LINES: usize = 500;
 const MAX_HISTORY_ENTRIES: usize = 200;
@@ -15,6 +16,7 @@ pub struct App {
     pub terminal: TerminalState,
     pub should_quit: bool,
     pub pending_reset: bool,
+    last_input_highlight: Option<InputHighlight>,
 }
 
 impl App {
@@ -24,6 +26,7 @@ impl App {
             terminal: TerminalState::new(),
             should_quit: false,
             pending_reset: false,
+            last_input_highlight: None,
         }
     }
 
@@ -33,6 +36,7 @@ impl App {
             terminal: TerminalState::new(),
             should_quit: false,
             pending_reset: false,
+            last_input_highlight: None,
         }
     }
 
@@ -44,7 +48,18 @@ impl App {
 
     pub fn tick(&mut self, delta_secs: f64) {
         tick::tick(&mut self.game, delta_secs);
+        self.terminal.tick_cursor_blink(delta_secs);
         self.check_hints();
+    }
+
+    pub fn poll_input_became_ready(&mut self) -> bool {
+        let current = classify_input(&self.terminal.input, self);
+
+        let Some(prev) = self.last_input_highlight.replace(current) else {
+            return false;
+        };
+
+        prev != InputHighlight::Ready && current == InputHighlight::Ready
     }
 
     fn check_hints(&mut self) {
@@ -134,12 +149,16 @@ impl App {
     }
 }
 
+const CURSOR_BLINK_INTERVAL: f64 = 1.0;
+
 pub struct TerminalState {
     pub input: String,
     pub lines: VecDeque<TerminalLine>,
     pub history: VecDeque<String>,
     pub history_idx: Option<usize>,
     pub saved_input: Option<String>,
+    pub cursor_visible: bool,
+    cursor_blink_timer: f64,
 }
 
 impl TerminalState {
@@ -150,15 +169,32 @@ impl TerminalState {
             history: VecDeque::new(),
             history_idx: None,
             saved_input: None,
+            cursor_visible: true,
+            cursor_blink_timer: 0.0,
         }
+    }
+
+    pub fn tick_cursor_blink(&mut self, delta_secs: f64) {
+        self.cursor_blink_timer += delta_secs;
+        if self.cursor_blink_timer >= CURSOR_BLINK_INTERVAL {
+            self.cursor_blink_timer -= CURSOR_BLINK_INTERVAL;
+            self.cursor_visible = !self.cursor_visible;
+        }
+    }
+
+    fn reset_cursor_blink(&mut self) {
+        self.cursor_visible = true;
+        self.cursor_blink_timer = 0.0;
     }
 
     pub fn push_char(&mut self, c: char) {
         self.input.push(c);
+        self.reset_cursor_blink();
     }
 
     pub fn pop_char(&mut self) {
         self.input.pop();
+        self.reset_cursor_blink();
     }
 
     pub fn take_input(&mut self) -> String {
@@ -255,4 +291,5 @@ pub enum OutputStyle {
     Error,
     Info,
     System,
+    Literal,
 }

@@ -54,3 +54,9 @@ trunk serve --release
 ```
 
 Open the URL Trunk prints (usually `http://127.0.0.1:8080`).
+
+## audio smoke test
+
+- web: open in firefox + chrome, press any key in the terminal, confirm background music starts.
+- web: leave it running for at least 30 seconds, confirm the loop continues and the page stays responsive.
+- native: run the native binary, confirm background music starts immediately and loops.

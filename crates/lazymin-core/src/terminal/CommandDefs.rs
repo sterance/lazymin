@@ -119,6 +119,20 @@ static BASE_COMMANDS: &[CommandDef] = &[
         execute: super::cmd_hello,
     },
     CommandDef {
+        name: "mute",
+        description: "mute all sound output",
+        locked: always_unlocked,
+        cost: None,
+        execute: super::cmd_mute,
+    },
+    CommandDef {
+        name: "unmute",
+        description: "unmute all sound output",
+        locked: always_unlocked,
+        cost: None,
+        execute: super::cmd_unmute,
+    },
+    CommandDef {
         name: "help",
         description: "list currently unlocked commands",
         locked: always_unlocked,
@@ -264,6 +278,8 @@ mod command_order_tests {
         for cmd in BASE_COMMANDS {
             if cmd.name == "hello"
                 || cmd.name == "help"
+                || cmd.name == "mute"
+                || cmd.name == "unmute"
                 || cmd.name == "sudo rm -rf /*"
                 || cmd.name == "pkill"
             {

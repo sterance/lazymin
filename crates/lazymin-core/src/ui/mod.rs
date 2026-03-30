@@ -168,12 +168,13 @@ fn terminal_text(app: &App) -> Text<'_> {
         InputHighlight::Unknown => Style::default().fg(GREEN),
     };
 
+    let cursor_char = if app.terminal.cursor_visible { "_" } else { " " };
     let cursor_style = Style::default().fg(GREEN).add_modifier(Modifier::DIM);
 
     lines.push(Line::from(vec![
         Span::styled("$ ", Style::default().fg(GREEN)),
         Span::styled(prompt_input, input_style),
-        Span::styled("_", cursor_style),
+        Span::styled(cursor_char, cursor_style),
     ]));
 
     Text::from(lines)
@@ -278,6 +279,9 @@ fn render_terminal_line(line: &TerminalLine) -> Line<'static> {
         TerminalLine::Input { raw } => Line::styled(format!("$ {raw}"), Style::default().fg(GREEN)),
         TerminalLine::Output { text, style } => {
             let base_style = output_style(*style);
+            if *style == OutputStyle::Literal {
+                return Line::styled(text.clone(), base_style);
+            }
             let command_style = match style {
                 OutputStyle::System => Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
                 _ => base_style.add_modifier(Modifier::BOLD),
@@ -300,5 +304,6 @@ fn output_style(style: OutputStyle) -> Style {
         OutputStyle::Error => Style::default().fg(Color::Red),
         OutputStyle::Info => Style::default().fg(Color::Cyan),
         OutputStyle::System => Style::default().fg(GREEN).add_modifier(Modifier::DIM),
+        OutputStyle::Literal => Style::default().fg(GREEN).add_modifier(Modifier::DIM),
     }
 }

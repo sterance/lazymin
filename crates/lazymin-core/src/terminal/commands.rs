@@ -864,11 +864,33 @@ fn cmd_hello(_: &str, _: &mut App) -> Vec<TerminalLine> {
             );
             TerminalLine::Output {
                 text,
-                style: OutputStyle::System,
+                style: OutputStyle::Literal,
             }
         })
         .chain(std::iter::once(TerminalLine::Blank))
         .collect()
+}
+
+pub(super) fn cmd_mute(_: &str, app: &mut App) -> Vec<TerminalLine> {
+    app.game.sound_muted = true;
+    vec![
+        TerminalLine::Output {
+            text: "sound muted".to_owned(),
+            style: OutputStyle::System,
+        },
+        TerminalLine::Blank,
+    ]
+}
+
+pub(super) fn cmd_unmute(_: &str, app: &mut App) -> Vec<TerminalLine> {
+    app.game.sound_muted = false;
+    vec![
+        TerminalLine::Output {
+            text: "sound unmuted".to_owned(),
+            style: OutputStyle::System,
+        },
+        TerminalLine::Blank,
+    ]
 }
 
 fn cmd_clear(_: &str, app: &mut App) -> Vec<TerminalLine> {
@@ -973,7 +995,7 @@ pub fn run_purchased_upgrade(
     if !bypass_unlock && !upgrade_unlocked(&app.game, u.kind) {
         return Some(vec![
             TerminalLine::Output {
-                text: "bash: upgrade: Permission denied".to_owned(),
+                text: "upgrade: Permission denied".to_owned(),
                 style: OutputStyle::Error,
             },
             TerminalLine::Blank,

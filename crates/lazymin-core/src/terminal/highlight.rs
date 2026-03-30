@@ -8,6 +8,7 @@ use super::command_modifiers::resolve_modifiers;
 use super::commands::command_registry;
 use super::permission_lock::{registry_command_blocked, upgrade_unlock_blocked};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputHighlight {
     Unknown,
     PartialMatch,
@@ -22,7 +23,8 @@ pub fn classify_input(input: &str, app: &App) -> InputHighlight {
         return InputHighlight::Unknown;
     }
 
-    let (mods, _purchase_repeat, effective) = resolve_modifiers(normalized);
+    let (mods, _purchase_repeat, effective, _invalid_prefix, _invalid_suffix) =
+        resolve_modifiers(normalized);
 
     if effective.split_whitespace().next() == Some("pkill") {
         if let Some(cmd) = command_registry().iter().find(|c| c.name == "pkill") {

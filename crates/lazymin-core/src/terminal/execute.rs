@@ -45,7 +45,8 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
         };
     }
 
-    let (mods, purchase_repeat, effective) = resolve_modifiers(trimmed);
+    let (mods, purchase_repeat, effective, invalid_prefix, invalid_suffix) =
+        resolve_modifiers(trimmed);
 
     if let Some(lines) = run_purchased_upgrade(app, effective, bypass_upgrade_unlock_check(&mods)) {
         return RunResult {
@@ -56,7 +57,7 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
 
     let Some(cmd) = find_command(effective) else {
         let mut lines = vec![TerminalLine::Output {
-            text: format!("bash: {effective}: command not found"),
+            text: format!("{effective}: command not found"),
             style: OutputStyle::Error,
         }];
         if let Some(suggestion) = suggest_command(effective, command_registry()) {
@@ -78,7 +79,7 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
         return RunResult {
             lines: vec![
                 TerminalLine::Output {
-                    text: format!("bash: {name}: Permission denied"),
+                    text: format!("{name}: Permission denied"),
                     style: OutputStyle::Error,
                 },
                 TerminalLine::Blank,
@@ -130,8 +131,25 @@ pub fn run(input: &str, app: &mut App) -> RunResult {
         }
     }
 
+    let mut lines = (cmd.execute)(effective, app);
+    if effective == "harvest.sh" && (invalid_prefix || invalid_suffix) {
+        let suffix = match (invalid_prefix, invalid_suffix) {
+            (true, false) => " (prefix invalid)",
+            (false, true) => " (suffix invalid)",
+            (true, true) => " (prefix invalid, suffix invalid)",
+            (false, false) => "",
+        };
+        if !suffix.is_empty() {
+            if let Some(TerminalLine::Output { text, .. }) = lines.iter_mut().find(|l| {
+                matches!(l, TerminalLine::Output { .. })
+            }) {
+                text.push_str(suffix);
+            }
+        }
+    }
+
     RunResult {
-        lines: (cmd.execute)(effective, app),
+        lines,
         echo_input: cmd.name != "clear",
     }
 }
@@ -151,7 +169,7 @@ mod tests {
         let line = "sudo rm -rf /*";
         assert_eq!(
             resolve_modifiers(line),
-            (CommandModifiers::default(), PurchaseRepeat::Once, line)
+            (CommandModifiers::default(), PurchaseRepeat::Once, line, false, false)
         );
     }
 
@@ -162,7 +180,9 @@ mod tests {
             (
                 [ModifierKind::Sudo].into_iter().collect::<CommandModifiers>(),
                 PurchaseRepeat::Once,
-                "apt install hdd"
+                "apt install hdd",
+                true,
+                false
             )
         );
     }
@@ -174,7 +194,9 @@ mod tests {
             (
                 [ModifierKind::Max].into_iter().collect::<CommandModifiers>(),
                 PurchaseRepeat::Max,
-                "apt install ram"
+                "apt install ram",
+                false,
+                true
             )
         );
     }
@@ -187,7 +209,9 @@ mod tests {
             (
                 CommandModifiers::default(),
                 PurchaseRepeat::Times(n),
-                "apt install ram"
+                "apt install ram",
+                false,
+                true
             )
         );
     }
@@ -200,7 +224,9 @@ mod tests {
             (
                 [ModifierKind::Sudo].into_iter().collect::<CommandModifiers>(),
                 PurchaseRepeat::Times(n),
-                "apt install ram"
+                "apt install ram",
+                true,
+                true
             )
         );
     }
@@ -213,7 +239,9 @@ mod tests {
             (
                 CommandModifiers::default(),
                 PurchaseRepeat::Times(n),
-                "apt install ram"
+                "apt install ram",
+                false,
+                true
             )
         );
     }
@@ -227,7 +255,9 @@ mod tests {
                     .into_iter()
                     .collect::<CommandModifiers>(),
                 PurchaseRepeat::Max,
-                "apt install ram"
+                "apt install ram",
+                true,
+                true
             )
         );
     }
@@ -256,7 +286,7 @@ mod tests {
         ];
 
         for &(input, ref want_mods, want_repeat) in cases {
-            let (m, r, eff) = resolve_modifiers(input);
+            let (m, r, eff, _, _) = resolve_modifiers(input);
             assert_eq!(eff, effective, "input={input:?}");
             assert_eq!(r, want_repeat, "input={input:?}");
             assert_eq!(&m, want_mods, "input={input:?}");
@@ -266,32 +296,43 @@ mod tests {
     #[test]
     fn resolve_modifiers_harvest_sh_all_suffix_prefix_permutations() {
         let effective = "harvest.sh";
-        let n = NonZeroU32::new(3).unwrap();
-        let sudo: CommandModifiers = [ModifierKind::Sudo].into_iter().collect();
-        let max: CommandModifiers = [ModifierKind::Max].into_iter().collect();
-        let sudo_max: CommandModifiers = [ModifierKind::Sudo, ModifierKind::Max]
-            .into_iter()
-            .collect();
-
-        let cases: &[(&str, CommandModifiers, PurchaseRepeat)] = &[
-            ("harvest.sh", CommandModifiers::default(), PurchaseRepeat::Once),
-            ("sudo harvest.sh", sudo, PurchaseRepeat::Once),
-            ("harvest.sh -max", max, PurchaseRepeat::Max),
-            ("sudo harvest.sh -max", sudo_max, PurchaseRepeat::Max),
-            ("harvest.sh *3", CommandModifiers::default(), PurchaseRepeat::Times(n)),
-            ("sudo harvest.sh *3", sudo, PurchaseRepeat::Times(n)),
-            ("harvest.sh *3 -max", CommandModifiers::default(), PurchaseRepeat::Times(n)),
-            ("sudo harvest.sh *3 -max", sudo, PurchaseRepeat::Times(n)),
-            ("harvest.sh -max *3", CommandModifiers::default(), PurchaseRepeat::Times(n)),
-            ("sudo harvest.sh -max *3", sudo, PurchaseRepeat::Times(n)),
+        let cases: &[&str] = &[
+            "harvest.sh",
+            "sudo harvest.sh",
+            "harvest.sh -max",
+            "sudo harvest.sh -max",
+            "harvest.sh *3",
+            "sudo harvest.sh *3",
+            "harvest.sh *3 -max",
+            "sudo harvest.sh *3 -max",
+            "harvest.sh -max *3",
+            "sudo harvest.sh -max *3",
         ];
 
-        for &(input, ref want_mods, want_repeat) in cases {
-            let (m, r, eff) = resolve_modifiers(input);
+        for &input in cases {
+            let (m, r, eff, invalid_prefix, invalid_suffix) = resolve_modifiers(input);
             assert_eq!(eff, effective, "input={input:?}");
-            assert_eq!(r, want_repeat, "input={input:?}");
-            assert_eq!(&m, want_mods, "input={input:?}");
+            assert_eq!(r, PurchaseRepeat::Once, "input={input:?}");
+            assert_eq!(m, CommandModifiers::default(), "input={input:?}");
+            assert_eq!(invalid_prefix, input.contains("sudo "), "input={input:?}");
+            assert_eq!(invalid_suffix, input.contains(" -max") || input.contains('*'), "input={input:?}");
         }
+    }
+
+    #[test]
+    fn resolve_modifiers_harvest_background_still_allows_modifiers() {
+        assert_eq!(
+            resolve_modifiers("sudo harvest.sh & -max"),
+            (
+                [ModifierKind::Sudo, ModifierKind::Max]
+                    .into_iter()
+                    .collect::<CommandModifiers>(),
+                PurchaseRepeat::Max,
+                "harvest.sh &",
+                true,
+                true
+            )
+        );
     }
 
     #[test]
@@ -302,7 +343,9 @@ mod tests {
             (
                 CommandModifiers::default(),
                 PurchaseRepeat::Times(n),
-                "apt install ram"
+                "apt install ram",
+                false,
+                true
             )
         );
     }
@@ -322,7 +365,7 @@ mod tests {
         ];
 
         for &(input, ref want_mods, want_repeat) in cases {
-            let (m, r, eff) = resolve_modifiers(input);
+            let (m, r, eff, _, _) = resolve_modifiers(input);
             assert_eq!(eff, effective, "input={input:?}");
             assert_eq!(r, want_repeat, "input={input:?}");
             assert_eq!(&m, want_mods, "input={input:?}");
@@ -334,7 +377,7 @@ mod tests {
         let u = "sudo visudo";
         assert_eq!(
             resolve_modifiers(u),
-            (CommandModifiers::default(), PurchaseRepeat::Once, u)
+            (CommandModifiers::default(), PurchaseRepeat::Once, u, false, false)
         );
     }
 
@@ -345,7 +388,9 @@ mod tests {
             (
                 [ModifierKind::Max].into_iter().collect::<CommandModifiers>(),
                 PurchaseRepeat::Max,
-                "sudo visudo"
+                "sudo visudo",
+                false,
+                true
             )
         );
     }
@@ -527,12 +572,20 @@ mod tests {
     }
 
     #[test]
-    fn times_on_costless_runs_n_times() {
+    fn harvest_sh_ignores_repeat_and_runs_once() {
         let mut app = App::new();
         let before = app.game.manual_runs;
         let n = NonZeroU32::new(4).unwrap();
         run(&format!("harvest.sh *{}", n.get()), &mut app);
-        assert_eq!(app.game.manual_runs, before + n.get() as u64);
+        assert_eq!(app.game.manual_runs, before + 1);
+    }
+
+    #[test]
+    fn harvest_sh_ignores_sudo_and_max_and_runs_once() {
+        let mut app = App::new();
+        let before = app.game.manual_runs;
+        run("sudo harvest.sh -max", &mut app);
+        assert_eq!(app.game.manual_runs, before + 1);
     }
 
     #[test]

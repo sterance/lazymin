@@ -10,6 +10,10 @@ fn is_known_command_or_upgrade(s: &str) -> bool {
     upgrade_by_command(s).is_some() || command_registry().iter().any(|cmd| cmd.name == s)
 }
 
+fn is_harvest_base_command(s: &str) -> bool {
+    s == "harvest.sh"
+}
+
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModifierKind {
@@ -137,9 +141,13 @@ impl FromIterator<ModifierKind> for CommandModifiers {
     }
 }
 
-fn strip_repeat_suffixes<'a>(mut s: &'a str, mods: &mut CommandModifiers) -> (PurchaseRepeat, &'a str) {
+fn strip_repeat_suffixes<'a>(
+    mut s: &'a str,
+    mods: &mut CommandModifiers,
+) -> (PurchaseRepeat, &'a str, bool) {
     let mut saw_max = false;
     let mut times: Option<NonZeroU32> = None;
+    let mut stripped_any = false;
 
     loop {
         let mut progressed = false;
@@ -152,6 +160,7 @@ fn strip_repeat_suffixes<'a>(mut s: &'a str, mods: &mut CommandModifiers) -> (Pu
                             s = rest;
                             times = Some(n);
                             progressed = true;
+                            stripped_any = true;
                             break;
                         }
                     }
@@ -164,6 +173,7 @@ fn strip_repeat_suffixes<'a>(mut s: &'a str, mods: &mut CommandModifiers) -> (Pu
                             mods.insert(enables_max_purchase_loop);
                             saw_max = true;
                             progressed = true;
+                            stripped_any = true;
                             break;
                         }
                     }
@@ -184,31 +194,53 @@ fn strip_repeat_suffixes<'a>(mut s: &'a str, mods: &mut CommandModifiers) -> (Pu
         PurchaseRepeat::Once
     };
 
-    (repeat, s)
+    (repeat, s, stripped_any)
 }
 
-pub fn resolve_modifiers(trimmed: &str) -> (CommandModifiers, PurchaseRepeat, &str) {
+pub fn resolve_modifiers(trimmed: &str) -> (CommandModifiers, PurchaseRepeat, &str, bool, bool) {
     if is_known_command_or_upgrade(trimmed) {
-        return (CommandModifiers::default(), PurchaseRepeat::Once, trimmed);
+        return (CommandModifiers::default(), PurchaseRepeat::Once, trimmed, false, false);
     }
 
     let mut mods = CommandModifiers::default();
-    let (repeat, s) = strip_repeat_suffixes(trimmed, &mut mods);
+    let (repeat, s, invalid_suffix) = strip_repeat_suffixes(trimmed, &mut mods);
+
+    if is_harvest_base_command(s) {
+        return (
+            CommandModifiers::default(),
+            PurchaseRepeat::Once,
+            s,
+            false,
+            invalid_suffix,
+        );
+    }
 
     if is_known_command_or_upgrade(s) {
-        return (mods, repeat, s);
+        return (mods, repeat, s, false, invalid_suffix);
     }
 
     let mut s = s;
+    let mut invalid_prefix = false;
     for def in PREFIX_MODIFIERS {
         if let Some(rest) = s.strip_prefix(def.prefix) {
             if !rest.is_empty() {
                 mods.insert(def.effect);
                 s = rest;
+                invalid_prefix = true;
                 break;
             }
         }
     }
 
-    (mods, repeat, s)
+    if is_harvest_base_command(s) {
+        return (
+            CommandModifiers::default(),
+            PurchaseRepeat::Once,
+            s,
+            invalid_prefix,
+            invalid_suffix,
+        );
+    }
+
+    (mods, repeat, s, invalid_prefix, invalid_suffix)
 }
