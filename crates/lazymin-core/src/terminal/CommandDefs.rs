@@ -127,7 +127,7 @@ static BASE_COMMANDS: &[CommandDef] = &[
     },
     CommandDef {
         name: "ls",
-        description: "list commands",
+        description: "list producers",
         locked: always_unlocked,
         cost: None,
         execute: super::cmd_ls,
@@ -180,6 +180,13 @@ static BASE_COMMANDS: &[CommandDef] = &[
         locked: lock_no_mem_producer,
         cost: None,
         execute: super::cmd_ps_aux,
+    },
+    CommandDef {
+        name: "pkill",
+        description: "kill a producer process by PID",
+        locked: always_unlocked,
+        cost: None,
+        execute: super::cmd_pkill,
     },
     CommandDef {
         name: "du",
@@ -255,7 +262,11 @@ mod command_order_tests {
             .collect();
 
         for cmd in BASE_COMMANDS {
-            if cmd.name == "hello" || cmd.name == "help" || cmd.name == "sudo rm -rf /*" {
+            if cmd.name == "hello"
+                || cmd.name == "help"
+                || cmd.name == "sudo rm -rf /*"
+                || cmd.name == "pkill"
+            {
                 continue;
             }
 

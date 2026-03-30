@@ -17,6 +17,10 @@ pub struct GameState {
     pub help_runs: u64,
     pub uptime_secs: f64,
     pub producers: HashMap<ProducerKind, u32>,
+    // producer tier unlocks are based on "ever owned" rather than current count,
+    // so this needs to remain true even if producers are later killed.
+    #[serde(default)]
+    pub ever_owned_producers: HashSet<ProducerKind>,
     pub capacity_purchases: HashMap<ResourceKind, u32>,
     pub hardware_cost_basis: HashMap<ResourceKind, u32>,
     pub announced_unlocks: HashMap<ProducerKind, bool>,
@@ -51,6 +55,7 @@ impl GameState {
             help_runs: 0,
             uptime_secs: 0.0,
             producers: HashMap::new(),
+            ever_owned_producers: HashSet::new(),
             capacity_purchases: HashMap::new(),
             hardware_cost_basis: HashMap::new(),
             announced_unlocks: HashMap::new(),

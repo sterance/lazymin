@@ -204,7 +204,11 @@ fn compute_rates(state: &GameState) -> HashMap<ResourceKind, f64> {
 
 fn check_unlocks(state: &mut GameState) {
     for def in all_producers() {
-        if !producer_unlocked(state.total_cycles_earned, &state.producers, def.kind) {
+        if !producer_unlocked(
+            state.total_cycles_earned,
+            &state.ever_owned_producers,
+            def.kind,
+        ) {
             continue;
         }
         if state

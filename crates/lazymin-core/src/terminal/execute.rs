@@ -17,7 +17,18 @@ fn command_name_for_error(input: &str) -> &str {
 }
 
 fn find_command<'a>(input: &'a str) -> Option<&'a CommandDef> {
-    command_registry().iter().find(|cmd| cmd.name == input)
+    if let Some(cmd) = command_registry().iter().find(|cmd| cmd.name == input) {
+        return Some(cmd);
+    }
+
+    let Some(first) = input.split_whitespace().next() else {
+        return None;
+    };
+    if first == "pkill" {
+        return command_registry().iter().find(|cmd| cmd.name == "pkill");
+    }
+
+    None
 }
 
 pub struct RunResult {
@@ -131,6 +142,8 @@ mod tests {
 
     use super::*;
     use crate::app::{App, TerminalLine};
+    use crate::format::fmt_bytes;
+    use crate::game::producers::{producer_def, ProducerKind};
     use crate::game::resources::ResourceKind;
 
     #[test]
@@ -520,5 +533,140 @@ mod tests {
         let n = NonZeroU32::new(4).unwrap();
         run(&format!("harvest.sh *{}", n.get()), &mut app);
         assert_eq!(app.game.manual_runs, before + n.get() as u64);
+    }
+
+    #[test]
+    fn pkill_missing_pid_is_error() {
+        let mut app = App::new();
+        let out = run("pkill", &mut app);
+        let text = out
+            .lines
+            .iter()
+            .filter_map(|l| match l {
+                TerminalLine::Output { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .next()
+            .unwrap();
+        assert_eq!(text, "specify process to kill, e.g. `pkill` [PID]");
+    }
+
+    #[test]
+    fn pkill_invalid_pid_token_is_error() {
+        let mut app = App::new();
+        let out = run("pkill not-a-pid", &mut app);
+        let text = out
+            .lines
+            .iter()
+            .filter_map(|l| match l {
+                TerminalLine::Output { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .next()
+            .unwrap();
+        assert_eq!(text, "invalid PID");
+    }
+
+    #[test]
+    fn pkill_pid_1_is_kernel_error() {
+        let mut app = App::new();
+        let out = run("pkill 1", &mut app);
+        let text = out
+            .lines
+            .iter()
+            .filter_map(|l| match l {
+                TerminalLine::Output { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .next()
+            .unwrap();
+        assert_eq!(text, "cannot kill kernel");
+    }
+
+    #[test]
+    fn pkill_kills_pid_and_frees_expected_ram() {
+        let mut app = App::new();
+        app.game.producers.insert(ProducerKind::ShellScript, 2);
+        app.game.producers.insert(ProducerKind::Daemon, 1);
+
+        let freed_ram_mb = producer_def(ProducerKind::ShellScript).ram_mb;
+        let out = run("pkill 1001", &mut app);
+        let text = out
+            .lines
+            .iter()
+            .filter_map(|l| match l {
+                TerminalLine::Output { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .next()
+            .unwrap();
+        assert_eq!(
+            text,
+            format!(
+                "[1001] killed, {} ram freed",
+                fmt_bytes(freed_ram_mb)
+            )
+        );
+
+        assert_eq!(
+            app.game.producers.get(&ProducerKind::ShellScript).copied(),
+            Some(1)
+        );
+        assert_eq!(
+            app.game.producers.get(&ProducerKind::Daemon).copied(),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn pkill_rejects_inactive_pid() {
+        let mut app = App::new();
+        app.game.producers.insert(ProducerKind::ShellScript, 1);
+
+        let out = run("pkill 1001", &mut app);
+        let text = out
+            .lines
+            .iter()
+            .filter_map(|l| match l {
+                TerminalLine::Output { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .next()
+            .unwrap();
+        assert_eq!(text, "invalid PID");
+
+        assert_eq!(
+            app.game.producers.get(&ProducerKind::ShellScript).copied(),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn pkill_runs_with_prefix_and_suffix_modifiers() {
+        let mut app = App::new();
+        app.game.producers.insert(ProducerKind::ShellScript, 1);
+
+        let freed_ram_mb = producer_def(ProducerKind::ShellScript).ram_mb;
+        let out = run("sudo pkill 1000 -max", &mut app);
+        let text = out
+            .lines
+            .iter()
+            .filter_map(|l| match l {
+                TerminalLine::Output { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .next()
+            .unwrap();
+        assert_eq!(
+            text,
+            format!(
+                "[1000] killed, {} ram freed",
+                fmt_bytes(freed_ram_mb)
+            )
+        );
+        assert_eq!(
+            app.game.producers.get(&ProducerKind::ShellScript).copied(),
+            None
+        );
     }
 }

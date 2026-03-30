@@ -240,8 +240,8 @@ const ALL: &[UpgradeDef] = &[
     UpgradeDef {
         kind: UpgradeKind::RngdFeedRandom,
         command: "rngd --feed-random",
-        cycles_cost: 2_000_000.0,
-        entropy_cost: 0.0,
+        cycles_cost: 200_000.0,
+        entropy_cost: 5.0,
         description: "entropy generation rate x5",
         effect: UpgradeEffect::EntropyRateMultiplier { factor: 5.0 },
     },
@@ -335,7 +335,7 @@ const ALL: &[UpgradeDef] = &[
     UpgradeDef {
         kind: UpgradeKind::HavegedRun,
         command: "haveged --run",
-        cycles_cost: 0.0,
+        cycles_cost: 5_000_000.0,
         entropy_cost: 25.0,
         description: "entropy rate x5 permanent",
         effect: UpgradeEffect::EntropyRateMultiplier { factor: 5.0 },

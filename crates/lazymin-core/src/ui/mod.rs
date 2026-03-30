@@ -200,32 +200,9 @@ fn log_text(app: &App) -> Text<'_> {
                 .add_modifier(Modifier::BOLD);
 
             let uptime_prefix = format!("[{}]  ", format_uptime(entry.uptime_secs));
-            let backtick_count = entry.text.matches('`').count();
-
-            if backtick_count % 2 != 0 {
-                return Line::styled(
-                    format!("{uptime_prefix}{}", entry.text),
-                    base_style,
-                );
-            }
-
-            let parts: Vec<&str> = entry.text.split('`').collect();
             let mut spans: Vec<Span<'_>> = Vec::new();
             spans.push(Span::styled(uptime_prefix, base_style));
-
-            for (idx, part) in parts.iter().enumerate() {
-                if part.is_empty() {
-                    continue;
-                }
-
-                let style = if idx % 2 == 1 {
-                    command_style
-                } else {
-                    base_style
-                };
-
-                spans.push(Span::styled((*part).to_owned(), style));
-            }
+            spans.extend(backtick_spans(&entry.text, base_style, command_style));
 
             Line::from(spans)
         })
@@ -234,10 +211,81 @@ fn log_text(app: &App) -> Text<'_> {
     Text::from(lines)
 }
 
+fn backtick_spans(text: &str, base_style: Style, command_style: Style) -> Vec<Span<'static>> {
+    let backtick_count = text.matches('`').count();
+    if backtick_count % 2 != 0 {
+        return vec![Span::styled(text.to_owned(), base_style)];
+    }
+
+    let parts: Vec<&str> = text.split('`').collect();
+    let mut spans = Vec::new();
+
+    for (idx, part) in parts.iter().enumerate() {
+        if part.is_empty() {
+            continue;
+        }
+
+        let style = if idx % 2 == 1 { command_style } else { base_style };
+        spans.push(Span::styled((*part).to_owned(), style));
+    }
+
+    spans
+}
+
+#[cfg(test)]
+mod backtick_spans_tests {
+    use super::*;
+
+    #[test]
+    fn odd_backticks_do_not_split() {
+        let base_style = Style::default();
+        let command_style = Style::default();
+
+        let spans = backtick_spans("a`b", base_style, command_style);
+
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content.as_ref(), "a`b");
+    }
+
+    #[test]
+    fn even_backticks_split_and_strip_delimiters() {
+        let base_style = Style::default();
+        let command_style = Style::default();
+
+        let spans = backtick_spans("a`b`c", base_style, command_style);
+
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].content.as_ref(), "a");
+        assert_eq!(spans[1].content.as_ref(), "b");
+        assert_eq!(spans[2].content.as_ref(), "c");
+        assert!(!spans.iter().any(|s| s.content.as_ref().contains('`')));
+    }
+
+    #[test]
+    fn edge_backticks_do_not_create_empty_spans() {
+        let base_style = Style::default();
+        let command_style = Style::default();
+
+        let spans = backtick_spans("`b`", base_style, command_style);
+
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content.as_ref(), "b");
+    }
+}
+
 fn render_terminal_line(line: &TerminalLine) -> Line<'static> {
     match line {
         TerminalLine::Input { raw } => Line::styled(format!("$ {raw}"), Style::default().fg(GREEN)),
-        TerminalLine::Output { text, style } => Line::styled(text.clone(), output_style(*style)),
+        TerminalLine::Output { text, style } => {
+            let base_style = output_style(*style);
+            let command_style = match style {
+                OutputStyle::System => Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+                _ => base_style.add_modifier(Modifier::BOLD),
+            };
+
+            let spans = backtick_spans(text, base_style, command_style);
+            Line::from(spans)
+        }
         TerminalLine::Blank => Line::raw(""),
     }
 }

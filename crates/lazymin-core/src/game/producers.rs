@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
@@ -143,7 +143,7 @@ pub fn previous_tier(kind: ProducerKind) -> Option<ProducerKind> {
 
 pub fn producer_unlocked(
     total_cycles_earned: f64,
-    producers: &HashMap<ProducerKind, u32>,
+    ever_owned_producers: &HashSet<ProducerKind>,
     kind: ProducerKind,
 ) -> bool {
     let def = producer_def(kind);
@@ -151,8 +151,7 @@ pub fn producer_unlocked(
         return false;
     }
     if let Some(prev) = previous_tier(kind) {
-        let owned = producers.get(&prev).copied().unwrap_or(0);
-        if owned < 1 {
+        if !ever_owned_producers.contains(&prev) {
             return false;
         }
     }
@@ -165,24 +164,24 @@ mod tests {
 
     #[test]
     fn shell_script_never_requires_previous_tier() {
-        let p = HashMap::new();
-        assert!(producer_unlocked(0.0, &p, ProducerKind::ShellScript));
+        let s = HashSet::new();
+        assert!(producer_unlocked(0.0, &s, ProducerKind::ShellScript));
     }
 
     #[test]
     fn cron_job_requires_cycles_and_shell_script() {
-        let mut p = HashMap::new();
-        assert!(!producer_unlocked(100.0, &p, ProducerKind::CronJob));
-        p.insert(ProducerKind::ShellScript, 1);
-        assert!(producer_unlocked(100.0, &p, ProducerKind::CronJob));
+        let mut s = HashSet::new();
+        assert!(!producer_unlocked(100.0, &s, ProducerKind::CronJob));
+        s.insert(ProducerKind::ShellScript);
+        assert!(producer_unlocked(100.0, &s, ProducerKind::CronJob));
     }
 
     #[test]
     fn daemon_requires_cron_not_only_shell() {
-        let mut p = HashMap::new();
-        p.insert(ProducerKind::ShellScript, 1);
-        assert!(!producer_unlocked(1_000.0, &p, ProducerKind::Daemon));
-        p.insert(ProducerKind::CronJob, 1);
-        assert!(producer_unlocked(1_000.0, &p, ProducerKind::Daemon));
+        let mut s = HashSet::new();
+        s.insert(ProducerKind::ShellScript);
+        assert!(!producer_unlocked(1_000.0, &s, ProducerKind::Daemon));
+        s.insert(ProducerKind::CronJob);
+        assert!(producer_unlocked(1_000.0, &s, ProducerKind::Daemon));
     }
 }

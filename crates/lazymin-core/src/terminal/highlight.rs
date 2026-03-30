@@ -24,6 +24,20 @@ pub fn classify_input(input: &str, app: &App) -> InputHighlight {
 
     let (mods, _purchase_repeat, effective) = resolve_modifiers(normalized);
 
+    if effective.split_whitespace().next() == Some("pkill") {
+        if let Some(cmd) = command_registry().iter().find(|c| c.name == "pkill") {
+            if registry_command_blocked(&mods, cmd, app) {
+                return InputHighlight::LockedCommand;
+            }
+            if let Some(cost_fn) = cmd.cost {
+                if app.game.resources.get(ResourceKind::Cycles) < cost_fn(app) {
+                    return InputHighlight::Unaffordable;
+                }
+            }
+            return InputHighlight::Ready;
+        }
+    }
+
     if let Some(u) = upgrade_by_command(effective) {
         if upgrade_unlock_blocked(&mods, &app.game, u.kind)
             || (!is_burst_upgrade(u.kind) && app.game.purchased_upgrades.contains(&u.kind))

@@ -179,6 +179,10 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
         .and_modify(|count| *count += 1)
         .or_insert(1);
 
+    if owned_before == 0 {
+        app.game.ever_owned_producers.insert(kind);
+    }
+
     vec![
         TerminalLine::Output {
             text: format!(
@@ -516,7 +520,110 @@ fn cmd_ps_aux(_: &str, app: &mut App) -> Vec<TerminalLine> {
     }
 
     out.push(TerminalLine::Blank);
+    out.push(TerminalLine::Output {
+        text: "`pkill` [PID] kills running processes".to_owned(),
+        style: OutputStyle::System,
+    });
+    out.push(TerminalLine::Blank);
     out
+}
+
+fn cmd_pkill(input: &str, app: &mut App) -> Vec<TerminalLine> {
+    let mut parts = input.split_whitespace();
+    let _ = parts.next();
+
+    let pid_tok = match parts.next() {
+        Some(tok) => tok,
+        None => {
+            return vec![
+                TerminalLine::Output {
+                    text: "specify process to kill, e.g. `pkill` [PID]".to_owned(),
+                    style: OutputStyle::Error,
+                },
+                TerminalLine::Blank,
+            ];
+        }
+    };
+
+    let pid: u32 = match pid_tok.parse() {
+        Ok(pid) => pid,
+        Err(_) => {
+            return vec![
+                TerminalLine::Output {
+                    text: "invalid PID".to_owned(),
+                    style: OutputStyle::Error,
+                },
+                TerminalLine::Blank,
+            ];
+        }
+    };
+
+    if pid == 1 {
+        return vec![
+            TerminalLine::Output {
+                text: "cannot kill kernel".to_owned(),
+                style: OutputStyle::Error,
+            },
+            TerminalLine::Blank,
+        ];
+    }
+
+    if pid < 1000 {
+        return vec![
+            TerminalLine::Output {
+                text: "invalid PID".to_owned(),
+                style: OutputStyle::Error,
+            },
+            TerminalLine::Blank,
+        ];
+    }
+
+    let mut idx = pid - 1000;
+    let mut target_kind: Option<ProducerKind> = None;
+    for def in all_producers() {
+        let count = app.game.producers.get(&def.kind).copied().unwrap_or(0);
+        if idx < count {
+            target_kind = Some(def.kind);
+            break;
+        }
+        idx = idx.saturating_sub(count);
+    }
+
+    let Some(kind) = target_kind else {
+        return vec![
+            TerminalLine::Output {
+                text: "invalid PID".to_owned(),
+                style: OutputStyle::Error,
+            },
+            TerminalLine::Blank,
+        ];
+    };
+
+    let count = app.game.producers.get(&kind).copied().unwrap_or(0);
+    if count == 0 {
+        return vec![
+            TerminalLine::Output {
+                text: "invalid PID".to_owned(),
+                style: OutputStyle::Error,
+            },
+            TerminalLine::Blank,
+        ];
+    }
+
+    let ram_mb = producer_def(kind).ram_mb;
+    if count == 1 {
+        app.game.producers.remove(&kind);
+    } else {
+        app.game.producers.insert(kind, count - 1);
+    }
+
+    vec![
+        TerminalLine::Output {
+            text: format!("[{pid}] killed, {} ram freed", fmt_bytes(ram_mb)),
+            style: OutputStyle::System,
+        },
+        TerminalLine::Blank,
+    ]
 }
 
 fn cmd_du(_: &str, app: &mut App) -> Vec<TerminalLine> {
@@ -565,6 +672,11 @@ fn cmd_du(_: &str, app: &mut App) -> Vec<TerminalLine> {
         style: OutputStyle::System,
     });
 
+    out.push(TerminalLine::Blank);
+    out.push(TerminalLine::Output {
+        text: "`jvacuum` clears log disk usage".to_owned(),
+        style: OutputStyle::System,
+    });
     out.push(TerminalLine::Blank);
     out
 }

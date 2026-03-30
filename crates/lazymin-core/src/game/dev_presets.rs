@@ -110,6 +110,7 @@ pub fn dev_game_state(tier: DevTier) -> GameState {
     let mut state = GameState::new();
     state.log.clear();
     state.producers = producers;
+    state.ever_owned_producers = state.producers.keys().copied().collect();
     state.total_cycles_earned = earned;
     state.resources.set(ResourceKind::Cycles, cycles);
     hints::mark_all_hints_triggered(&mut state.hints, state.uptime_secs);

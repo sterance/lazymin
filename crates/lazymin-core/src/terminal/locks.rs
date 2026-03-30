@@ -25,7 +25,11 @@ pub(super) fn lock_apt_upgrade(app: &App) -> bool {
 }
 
 fn locked_producer(app: &App, kind: ProducerKind) -> bool {
-    !producer_unlocked(app.game.total_cycles_earned, &app.game.producers, kind)
+    !producer_unlocked(
+        app.game.total_cycles_earned,
+        &app.game.ever_owned_producers,
+        kind,
+    )
 }
 
 fn any_producer_owned_using(game: &GameState, check: fn(&ProducerDef) -> bool) -> bool {
