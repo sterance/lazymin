@@ -341,6 +341,21 @@ pub fn on_terminal_data(chunk: String) {
 }
 
 #[wasm_bindgen]
+pub fn on_wheel(direction: i32, column: u16, row: u16) {
+    let event = if direction < 0 {
+        Some(InputEvent::ScrollUp { column, row })
+    } else if direction > 0 {
+        Some(InputEvent::ScrollDown { column, row })
+    } else {
+        None
+    };
+    let Some(event) = event else {
+        return;
+    };
+    INPUT_QUEUE.with(|q| q.borrow_mut().push(event));
+}
+
+#[wasm_bindgen]
 pub fn run_game(write: &js_sys::Function, get_size: &js_sys::Function) -> Result<(), JsValue> {
     let app = match save::load() {
         Ok(Some(mut state)) => {
@@ -408,9 +423,12 @@ pub fn run_game(write: &js_sys::Function, get_size: &js_sys::Function) -> Result
         }
 
         {
-            let a = app_for_cb.borrow();
+            let mut a = app_for_cb.borrow_mut();
             let mut t = terminal_for_cb.borrow_mut();
-            if let Err(e) = t.draw(|f| ui::draw(f, &*a)) {
+            if let Err(e) = t.draw(|f| {
+                a.set_frame_size(f.area().width, f.area().height);
+                ui::draw(f, &*a)
+            }) {
                 web_sys::console::error_1(&JsValue::from_str(&format!("draw failed: {e}")));
             }
         }

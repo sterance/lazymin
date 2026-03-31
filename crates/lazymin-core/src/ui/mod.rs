@@ -1,9 +1,11 @@
-mod layout;
+pub mod layout;
 
-use ratatui::layout::{Alignment, Constraint, Direction, Layout};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Margin, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use ratatui::widgets::{
+    Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap,
+};
 use ratatui::Frame;
 
 use crate::app::{App, OutputStyle, TerminalLine};
@@ -114,30 +116,50 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
     frame.render_widget(resources, areas.resources);
 
     let terminal_inner_w = areas.terminal.width.saturating_sub(2).max(1);
+    let terminal_visible_lines = areas.terminal.height.saturating_sub(2) as usize;
     let terminal_content = terminal_text(app);
     let terminal_wrapped_lines = Paragraph::new(terminal_content.clone())
         .wrap(Wrap { trim: true })
         .line_count(terminal_inner_w);
-    let terminal_scroll = scroll_offset_for_lines(terminal_wrapped_lines, areas.terminal.height);
+    let terminal_scroll = scroll_offset_for_lines(
+        terminal_wrapped_lines,
+        terminal_visible_lines,
+        app.terminal_scroll_back,
+    );
     let terminal = Paragraph::new(terminal_content)
         .style(Style::default().fg(GREEN))
         .wrap(Wrap { trim: true })
         .scroll((terminal_scroll, 0))
         .block(green_border());
     frame.render_widget(terminal, areas.terminal);
+    render_scrollbar(
+        frame,
+        areas.terminal,
+        terminal_wrapped_lines,
+        terminal_visible_lines,
+        app.terminal_scroll_back,
+    );
 
     let log_inner_w = areas.log.width.saturating_sub(2).max(1);
+    let log_visible_lines = areas.log.height.saturating_sub(2) as usize;
     let log_content = log_text(app);
     let log_wrapped_lines = Paragraph::new(log_content.clone())
         .wrap(Wrap { trim: true })
         .line_count(log_inner_w);
-    let log_scroll = scroll_offset_for_lines(log_wrapped_lines, areas.log.height);
+    let log_scroll = scroll_offset_for_lines(log_wrapped_lines, log_visible_lines, app.log_scroll_back);
     let log = Paragraph::new(log_content)
         .style(Style::default().fg(GREEN))
         .wrap(Wrap { trim: true })
         .scroll((log_scroll, 0))
         .block(green_border().title("LOG"));
     frame.render_widget(log, areas.log);
+    render_scrollbar(
+        frame,
+        areas.log,
+        log_wrapped_lines,
+        log_visible_lines,
+        app.log_scroll_back,
+    );
 }
 
 fn format_uptime(seconds: f64) -> String {
@@ -180,13 +202,44 @@ fn terminal_text(app: &App) -> Text<'_> {
     Text::from(lines)
 }
 
-fn scroll_offset_for_lines(total_wrapped_lines: usize, area_height: u16) -> u16 {
-    let visible_lines = area_height.saturating_sub(2) as usize;
+fn scroll_offset_for_lines(total_wrapped_lines: usize, visible_lines: usize, scroll_back: usize) -> u16 {
     if visible_lines == 0 {
         return 0;
     }
+    let max_scroll = total_wrapped_lines.saturating_sub(visible_lines);
+    let effective_scroll = max_scroll.saturating_sub(scroll_back.min(max_scroll));
+    effective_scroll as u16
+}
 
-    total_wrapped_lines.saturating_sub(visible_lines) as u16
+fn render_scrollbar(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    total_wrapped_lines: usize,
+    visible_lines: usize,
+    scroll_back: usize,
+) {
+    if visible_lines == 0 || total_wrapped_lines <= visible_lines {
+        return;
+    }
+    let max_scroll = total_wrapped_lines.saturating_sub(visible_lines);
+    let position = max_scroll.saturating_sub(scroll_back.min(max_scroll));
+    let mut state = ScrollbarState::new(max_scroll + 1)
+        .position(position)
+        .viewport_content_length(visible_lines);
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .style(Style::default().fg(GREEN))
+        .thumb_style(Style::default().fg(GREEN))
+        .track_style(Style::default().fg(GREEN).add_modifier(Modifier::DIM));
+    frame.render_stateful_widget(
+        scrollbar,
+        area.inner(Margin {
+            vertical: 1,
+            horizontal: 0,
+        }),
+        &mut state,
+    );
 }
 
 fn log_text(app: &App) -> Text<'_> {

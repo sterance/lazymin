@@ -7,7 +7,10 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+    MouseEvent, MouseEventKind,
+};
 use lazymin_core::app::App;
 use lazymin_core::audio::{BACKGROUND_LOOP_OPUS, DING_OPUS};
 use lazymin_core::game::save;
@@ -24,6 +27,7 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia_adapter_libopus::OpusDecoder;
+use crossterm::execute;
 
 #[cfg(feature = "dev-presets")]
 use lazymin_core::game::dev_presets::{dev_game_state, DevTier};
@@ -203,16 +207,21 @@ fn main() -> AppResult<()> {
     }
 
     let mut terminal = ratatui::init();
+    execute!(std::io::stdout(), EnableMouseCapture)?;
     let mut last_tick = Instant::now();
 
     loop {
-        terminal.draw(|frame| ui::draw(frame, &app))?;
+        terminal.draw(|frame| {
+            app.set_frame_size(frame.area().width, frame.area().height);
+            ui::draw(frame, &app)
+        })?;
 
         let mut events = Vec::new();
         if event::poll(Duration::from_millis(16))? {
             loop {
                 let maybe_event = match event::read()? {
                     Event::Key(key) => map_key(key),
+                    Event::Mouse(mouse) => map_mouse(mouse),
                     _ => None,
                 };
                 if let Some(input_event) = maybe_event {
@@ -242,6 +251,7 @@ fn main() -> AppResult<()> {
         }
     }
 
+    execute!(std::io::stdout(), DisableMouseCapture)?;
     ratatui::restore();
     Ok(())
 }
@@ -256,6 +266,20 @@ fn map_key(key: KeyEvent) -> Option<InputEvent> {
         KeyCode::Enter => Some(InputEvent::Enter),
         KeyCode::Up => Some(InputEvent::Up),
         KeyCode::Down => Some(InputEvent::Down),
+        _ => None,
+    }
+}
+
+fn map_mouse(mouse: MouseEvent) -> Option<InputEvent> {
+    match mouse.kind {
+        MouseEventKind::ScrollUp => Some(InputEvent::ScrollUp {
+            column: mouse.column,
+            row: mouse.row,
+        }),
+        MouseEventKind::ScrollDown => Some(InputEvent::ScrollDown {
+            column: mouse.column,
+            row: mouse.row,
+        }),
         _ => None,
     }
 }

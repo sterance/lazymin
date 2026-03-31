@@ -7,15 +7,22 @@ use crate::game::state::GameState;
 use crate::game::tick;
 use crate::input::InputEvent;
 use crate::terminal::highlight::{classify_input, InputHighlight};
+use crate::ui::layout;
+use ratatui::layout::Rect;
 
-const MAX_TERMINAL_LINES: usize = 500;
-const MAX_HISTORY_ENTRIES: usize = 200;
+const MAX_TERMINAL_LINES: usize = 1_000_000;
+const MAX_HISTORY_ENTRIES: usize = 1_000_000;
+const SCROLL_SPEED: usize = 3;
 
 pub struct App {
     pub game: GameState,
     pub terminal: TerminalState,
     pub should_quit: bool,
     pub pending_reset: bool,
+    pub terminal_scroll_back: usize,
+    pub log_scroll_back: usize,
+    pub frame_size: (u16, u16),
+    pub prev_log_len: usize,
     last_input_highlight: Option<InputHighlight>,
 }
 
@@ -26,16 +33,25 @@ impl App {
             terminal: TerminalState::new(),
             should_quit: false,
             pending_reset: false,
+            terminal_scroll_back: 0,
+            log_scroll_back: 0,
+            frame_size: (0, 0),
+            prev_log_len: 0,
             last_input_highlight: None,
         }
     }
 
     pub fn with_game_state(game: GameState) -> Self {
+        let initial_log_len = game.log.len();
         Self {
             game,
             terminal: TerminalState::new(),
             should_quit: false,
             pending_reset: false,
+            terminal_scroll_back: 0,
+            log_scroll_back: 0,
+            frame_size: (0, 0),
+            prev_log_len: initial_log_len,
             last_input_highlight: None,
         }
     }
@@ -50,6 +66,14 @@ impl App {
         tick::tick(&mut self.game, delta_secs);
         self.terminal.tick_cursor_blink(delta_secs);
         self.check_hints();
+        if self.game.log.len() > self.prev_log_len {
+            self.log_scroll_back = 0;
+        }
+        self.prev_log_len = self.game.log.len();
+    }
+
+    pub fn set_frame_size(&mut self, width: u16, height: u16) {
+        self.frame_size = (width, height);
     }
 
     pub fn poll_input_became_ready(&mut self) -> bool {
@@ -74,9 +98,16 @@ impl App {
 
     fn handle_input(&mut self, event: &InputEvent) {
         match event {
-            InputEvent::Char(c) => self.terminal.push_char(*c),
-            InputEvent::Backspace => self.terminal.pop_char(),
+            InputEvent::Char(c) => {
+                self.terminal.push_char(*c);
+                self.terminal_scroll_back = 0;
+            }
+            InputEvent::Backspace => {
+                self.terminal.pop_char();
+                self.terminal_scroll_back = 0;
+            }
             InputEvent::Enter => {
+                self.terminal_scroll_back = 0;
                 let input = self.terminal.take_input();
                 if input.is_empty() {
                     return;
@@ -142,11 +173,58 @@ impl App {
                 self.terminal.lines.extend(run_result.lines);
                 self.terminal.trim_lines();
             }
-            InputEvent::CtrlC => self.terminal.cancel_input(),
-            InputEvent::Up => self.terminal.history_prev(),
-            InputEvent::Down => self.terminal.history_next(),
+            InputEvent::CtrlC => {
+                self.terminal.cancel_input();
+                self.terminal_scroll_back = 0;
+            }
+            InputEvent::Up => {
+                self.terminal.history_prev();
+                self.terminal_scroll_back = 0;
+            }
+            InputEvent::Down => {
+                self.terminal.history_next();
+                self.terminal_scroll_back = 0;
+            }
+            InputEvent::ScrollUp { column, row } => self.scroll_panel(*column, *row, true),
+            InputEvent::ScrollDown { column, row } => self.scroll_panel(*column, *row, false),
         }
     }
+
+    fn scroll_panel(&mut self, column: u16, row: u16, up: bool) {
+        let (width, height) = self.frame_size;
+        if width == 0 || height == 0 {
+            return;
+        }
+
+        let areas = layout::compute(Rect {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        });
+        let target = if contains(areas.terminal, column, row) {
+            Some(&mut self.terminal_scroll_back)
+        } else if contains(areas.log, column, row) {
+            Some(&mut self.log_scroll_back)
+        } else {
+            None
+        };
+
+        let Some(scroll_back) = target else {
+            return;
+        };
+        if up {
+            *scroll_back = scroll_back.saturating_add(SCROLL_SPEED);
+        } else {
+            *scroll_back = scroll_back.saturating_sub(SCROLL_SPEED);
+        }
+    }
+}
+
+fn contains(rect: Rect, column: u16, row: u16) -> bool {
+    let right = rect.x.saturating_add(rect.width);
+    let bottom = rect.y.saturating_add(rect.height);
+    column >= rect.x && column < right && row >= rect.y && row < bottom
 }
 
 const CURSOR_BLINK_INTERVAL: f64 = 1.0;

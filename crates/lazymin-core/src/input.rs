@@ -6,4 +6,6 @@ pub enum InputEvent {
     Up,
     Down,
     CtrlC,
+    ScrollUp { column: u16, row: u16 },
+    ScrollDown { column: u16, row: u16 },
 }

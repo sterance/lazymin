@@ -20,7 +20,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
   <script type="module">
     function startApp() {
-      const { run_game, on_terminal_data } = window.wasmBindings;
+      const { run_game, on_terminal_data, on_wheel } = window.wasmBindings;
       const Terminal = window.Terminal;
       const FitAddon = window.FitAddon.FitAddon;
       const container = document.getElementById('terminal');
@@ -40,6 +40,14 @@
       fitAddon.fit();
       term.focus();
       window.addEventListener('resize', () => fitAddon.fit());
+      container.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = container.getBoundingClientRect();
+        const col = Math.floor((e.clientX - rect.left) / (rect.width / term.cols));
+        const row = Math.floor((e.clientY - rect.top) / (rect.height / term.rows));
+        const dir = e.deltaY > 0 ? 1 : e.deltaY < 0 ? -1 : 0;
+        if (dir !== 0) on_wheel(dir, col, row);
+      }, { passive: false });
 
       const write = (bytes) => {
         term.write(new Uint8Array(bytes));
