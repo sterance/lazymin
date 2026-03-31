@@ -470,7 +470,7 @@ mod tests {
             "expected summary with count and cap: {joined}"
         );
         assert!(
-            joined.contains("insufficient cycles"),
+            joined.contains("capped by: cycles"),
             "expected cycles cap when afford runs out: {joined}"
         );
     }
@@ -492,7 +492,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join(" ");
         assert!(
-            joined.contains("power budget"),
+            joined.contains("capped by: power"),
             "expected power gate with low watt cap: {joined}"
         );
     }
@@ -514,7 +514,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join(" ");
         assert!(
-            joined.contains("memory") || joined.contains("Memory"),
+            joined.contains("capped by: memory"),
             "expected ram gate: {joined}"
         );
     }
@@ -566,7 +566,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join(" ");
         assert!(
-            joined.contains("capped by:") && joined.contains("insufficient cycles"),
+            joined.contains("capped by: cycles"),
             "expected cap when cycles run out before limit: {joined}"
         );
     }
@@ -601,7 +601,7 @@ mod tests {
             })
             .next()
             .unwrap();
-        assert_eq!(text, "specify process to kill, e.g. `pkill` [PID]");
+        assert_eq!(text, "specify process to kill, e.g. `pkill [PID]`");
     }
 
     #[test]
@@ -721,5 +721,64 @@ mod tests {
             app.game.producers.get(&ProducerKind::ShellScript).copied(),
             None
         );
+    }
+
+    #[test]
+    fn uuidgen_discount_applies_across_times_loop_and_is_consumed() {
+        let mut app = App::new();
+        app.game
+            .resources
+            .set(ResourceKind::Cycles, 1_000_000.0);
+        app.game.resources.set_cap(ResourceKind::Watts, 1_000.0);
+
+        run("uuidgen", &mut app);
+        assert_eq!(app.game.next_hardware_discount, Some(0.7));
+
+        let before = app
+            .game
+            .capacity_purchases
+            .get(&ResourceKind::Ram)
+            .copied()
+            .unwrap_or(0);
+
+        run("sudo apt install ram *3", &mut app);
+
+        let after = app
+            .game
+            .capacity_purchases
+            .get(&ResourceKind::Ram)
+            .copied()
+            .unwrap_or(0);
+
+        assert_eq!(after, before + 3);
+        assert_eq!(app.game.next_hardware_discount, None);
+    }
+
+    #[test]
+    fn uuidgen_discount_preserved_when_no_purchases_complete() {
+        let mut app = App::new();
+        app.game
+            .resources
+            .set(ResourceKind::Cycles, 0.0);
+        app.game.resources.set_cap(ResourceKind::Watts, 1_000.0);
+
+        app.game.next_hardware_discount = Some(0.7);
+
+        let out = run("sudo apt install ram *3", &mut app);
+        let joined: String = out
+            .lines
+            .iter()
+            .filter_map(|l| match l {
+                TerminalLine::Output { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            joined.contains("insufficient cycles"),
+            "expected insufficient cycles error when no purchases can complete: {joined}"
+        );
+
+        assert_eq!(app.game.next_hardware_discount, Some(0.7));
     }
 }

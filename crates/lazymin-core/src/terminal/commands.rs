@@ -101,6 +101,47 @@ fn producer_cost_for(app: &App, kind: ProducerKind) -> f64 {
     p
 }
 
+fn format_upgrade_cost(cycles: f64, entropy: f64) -> String {
+    let mut parts = Vec::new();
+    if cycles > 0.0 {
+        parts.push(format!("{} cycles", fmt_cycles(cycles)));
+    }
+    if entropy > 0.0 {
+        parts.push(format!("{entropy:.2} ent"));
+    }
+    if parts.is_empty() {
+        "free".to_owned()
+    } else {
+        parts.join(" + ")
+    }
+}
+
+fn format_upgrade_cost_suffix(cycles: f64, entropy: f64) -> String {
+    let mut parts = Vec::new();
+    if cycles > 0.0 {
+        parts.push(format!("-{} cycles", fmt_cycles(cycles)));
+    }
+    if entropy > 0.0 {
+        parts.push(format!("-{entropy:.2} ent"));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", parts.join(", "))
+    }
+}
+
+fn upgrade_cost_by_command(app: &App, command: &str) -> Option<(f64, f64)> {
+    let u = upgrade_by_command(command)?;
+    let (cycles, entropy) = if is_burst_upgrade(u.kind) {
+        let bought = app.game.burst_purchase_counts.get(&u.kind).copied().unwrap_or(0);
+        burst_upgrade_cost(u, bought)
+    } else {
+        (u.cycles_cost, u.entropy_cost)
+    };
+    Some((cycles, entropy))
+}
+
 fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
     let def = producer_def(kind);
     let owned_before = app.game.producers.get(&kind).copied().unwrap_or(0);
@@ -259,10 +300,36 @@ fn buy_capacity(app: &mut App, kind: ResourceKind) -> Vec<TerminalLine> {
         .or_insert(1);
 
     let cap = app.game.resources.cap(kind).unwrap_or(0.0);
+    let (cap_str, free_str) = match kind {
+        ResourceKind::Ram => {
+            let reserved = total_reserved_ram(&app.game.producers);
+            let free = (cap - reserved).max(0.0);
+            (fmt_bytes(cap), fmt_bytes(free))
+        }
+        ResourceKind::Disk => {
+            let reserved = total_reserved_disk(&app.game.producers);
+            let used = reserved + app.game.disk_log_usage;
+            let free = (cap - used).max(0.0);
+            (fmt_bytes(cap), fmt_bytes(free))
+        }
+        ResourceKind::Bandwidth => {
+            let reserved = total_reserved_bandwidth(&app.game.producers);
+            let free = (cap - reserved).max(0.0);
+            (fmt_bandwidth(cap), fmt_bandwidth(free))
+        }
+        ResourceKind::Watts => {
+            let used = total_power_draw(&app.game.capacity_purchases);
+            let free = (cap - used).max(0.0);
+            (fmt_watts(cap), fmt_watts(free))
+        }
+        ResourceKind::Cycles | ResourceKind::Entropy => unreachable!(
+            "buy_capacity should only be called for capacity hardware kinds"
+        ),
+    };
 
     vec![
         TerminalLine::Output {
-            text: format!("{} capacity now {:.0}", hw.label, cap),
+            text: format!("{} capacity now {cap_str}, {free_str} free", hw.label),
             style: OutputStyle::System,
         },
         TerminalLine::Blank,
@@ -447,18 +514,7 @@ fn cmd_apt_update(_: &str, app: &mut App) -> Vec<TerminalLine> {
             .unwrap_or(0);
         let (cy, ent) = burst_upgrade_cost(u, bought);
 
-        let mut parts = Vec::new();
-        if cy > 0.0 {
-            parts.push(format!("{} cycles", fmt_cycles(cy)));
-        }
-        if ent > 0.0 {
-            parts.push(format!("{:.2} ent", ent));
-        }
-        let cost_str = if parts.is_empty() {
-            "free".to_owned()
-        } else {
-            parts.join(" + ")
-        };
+        let cost_str = format_upgrade_cost(cy, ent);
 
         out.push(TerminalLine::Output {
             text: format!("[{bought}] {} - {} ({})", u.command, u.description, cost_str),
@@ -521,7 +577,7 @@ fn cmd_ps_aux(_: &str, app: &mut App) -> Vec<TerminalLine> {
 
     out.push(TerminalLine::Blank);
     out.push(TerminalLine::Output {
-        text: "`pkill` [PID] kills running processes".to_owned(),
+        text: "`pkill [PID]` kills running processes".to_owned(),
         style: OutputStyle::System,
     });
     out.push(TerminalLine::Blank);
@@ -537,7 +593,7 @@ fn cmd_pkill(input: &str, app: &mut App) -> Vec<TerminalLine> {
         None => {
             return vec![
                 TerminalLine::Output {
-                    text: "specify process to kill, e.g. `pkill` [PID]".to_owned(),
+                    text: "specify process to kill, e.g. `pkill [PID]`".to_owned(),
                     style: OutputStyle::Error,
                 },
                 TerminalLine::Blank,
@@ -673,8 +729,11 @@ fn cmd_du(_: &str, app: &mut App) -> Vec<TerminalLine> {
     });
 
     out.push(TerminalLine::Blank);
+    let jvacuum_cost_suffix = upgrade_cost_by_command(app, "jvacuum")
+        .map(|(cycles, entropy)| format_upgrade_cost_suffix(cycles, entropy))
+        .unwrap_or_default();
     out.push(TerminalLine::Output {
-        text: "`jvacuum` clears log disk usage".to_owned(),
+        text: format!("`jvacuum` clears log disk usage{jvacuum_cost_suffix}"),
         style: OutputStyle::System,
     });
     out.push(TerminalLine::Blank);
@@ -965,18 +1024,7 @@ fn cmd_upgrades(_: &str, app: &mut App) -> Vec<TerminalLine> {
         if !upgrade_unlocked(&app.game, u.kind) {
             continue;
         }
-        let mut parts = Vec::new();
-        if u.cycles_cost > 0.0 {
-            parts.push(format!("{} cycles", fmt_cycles(u.cycles_cost)));
-        }
-        if u.entropy_cost > 0.0 {
-            parts.push(format!("{:.2} ent", u.entropy_cost));
-        }
-        let cost_str = if parts.is_empty() {
-            "free".to_owned()
-        } else {
-            parts.join(" + ")
-        };
+        let cost_str = format_upgrade_cost(u.cycles_cost, u.entropy_cost);
         out.push(TerminalLine::Output {
             text: format!("{} - {} ({})", u.command, u.description, cost_str),
             style: OutputStyle::Info,
@@ -1047,7 +1095,12 @@ pub fn run_purchased_upgrade(
 
     Some(vec![
         TerminalLine::Output {
-            text: format!("{} -- {}", u.command, u.description),
+            text: format!(
+                "{} -- {}{}",
+                u.command,
+                u.description,
+                format_upgrade_cost_suffix(cy, ent)
+            ),
             style: OutputStyle::System,
         },
         TerminalLine::Blank,

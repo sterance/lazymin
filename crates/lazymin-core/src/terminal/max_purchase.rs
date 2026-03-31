@@ -6,6 +6,18 @@ use crate::game::resources::ResourceKind;
 
 use super::commands::CommandDef;
 
+fn short_cap_reason(err: &str) -> &str {
+    match err {
+        e if e.starts_with("insufficient cycles") => "cycles",
+        e if e.starts_with("insufficient memory") => "memory",
+        e if e.starts_with("insufficient disk") => "disk",
+        e if e.starts_with("insufficient bandwidth") => "bandwidth",
+        e if e.starts_with("insufficient entropy") => "entropy",
+        e if e.starts_with("power budget") => "power",
+        _ => err,
+    }
+}
+
 pub(crate) fn run_max_purchases(
     effective: &str,
     cmd: &CommandDef,
@@ -32,8 +44,10 @@ fn run_purchases_with_limit(
     let cost_fn = cmd.cost.expect("run_purchases_with_limit requires cost");
     let mut count = 0usize;
     let mut last_ok_text = String::new();
+    let saved_discount = app.game.next_hardware_discount;
 
     loop {
+        app.game.next_hardware_discount = saved_discount;
         let price = cost_fn(app);
         let cycles = app.game.resources.get(ResourceKind::Cycles);
         if cycles < price {
@@ -55,9 +69,13 @@ fn run_purchases_with_limit(
                 fmt_cycles(price),
                 fmt_cycles(cycles)
             );
+            app.game.next_hardware_discount = None;
             return vec![
                 TerminalLine::Output {
-                    text: format!("x{count}: {last_ok_text} (capped by: {cap})"),
+                    text: format!(
+                        "x{count}: {last_ok_text} (capped by: {})",
+                        short_cap_reason(&cap)
+                    ),
                     style: OutputStyle::System,
                 },
                 TerminalLine::Blank,
@@ -77,9 +95,13 @@ fn run_purchases_with_limit(
             if count == 0 {
                 return lines;
             }
+            app.game.next_hardware_discount = None;
             return vec![
                 TerminalLine::Output {
-                    text: format!("x{count}: {last_ok_text} (capped by: {err})"),
+                    text: format!(
+                        "x{count}: {last_ok_text} (capped by: {})",
+                        short_cap_reason(err)
+                    ),
                     style: OutputStyle::System,
                 },
                 TerminalLine::Blank,
@@ -101,6 +123,7 @@ fn run_purchases_with_limit(
 
         if let Some(lim) = limit {
             if count >= lim.get() as usize {
+                app.game.next_hardware_discount = None;
                 return vec![
                     TerminalLine::Output {
                         text: format!("x{count}: {last_ok_text}"),
@@ -139,7 +162,10 @@ pub(crate) fn run_costless_repeats(
             }
             return vec![
                 TerminalLine::Output {
-                    text: format!("x{count}: {last_ok_text} (capped by: {err})"),
+                    text: format!(
+                        "x{count}: {last_ok_text} (capped by: {})",
+                        short_cap_reason(err)
+                    ),
                     style: OutputStyle::System,
                 },
                 TerminalLine::Blank,
