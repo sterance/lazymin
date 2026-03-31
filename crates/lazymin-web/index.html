@@ -37,6 +37,7 @@
       });
       term.loadAddon(fitAddon);
       term.open(container);
+      term.attachCustomWheelEventHandler(() => false);
       fitAddon.fit();
       term.focus();
       window.addEventListener('resize', () => fitAddon.fit());
