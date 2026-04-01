@@ -373,8 +373,8 @@ const ALL: &[UpgradeDef] = &[
     UpgradeDef {
         kind: UpgradeKind::RebootFirmware,
         command: "reboot --firmware",
-        cycles_cost: 500_000.0,
-        entropy_cost: 60.0,
+        cycles_cost: 50_000.0,
+        entropy_cost: 10.0,
         description: "reset hardware purchase cost scaling (keep caps)",
         effect: UpgradeEffect::HardwareCostBasisReset,
     },
@@ -592,7 +592,9 @@ pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
                 .unwrap_or(0)
                 >= 5
         }
-        UpgradeKind::RebootFirmware => state.total_entropy_spent >= 100.0,
+        UpgradeKind::RebootFirmware => {
+            state.capacity_purchases.values().copied().sum::<u32>() >= 20
+        }
         UpgradeKind::Init0Init6 => {
             state
                 .producers
