@@ -730,7 +730,9 @@ mod tests {
             .resources
             .set(ResourceKind::Cycles, 1_000_000.0);
         app.game.resources.set_cap(ResourceKind::Watts, 1_000.0);
+        app.game.resources.set(ResourceKind::Entropy, 10.0);
 
+        run("sudo apt install ram", &mut app);
         run("uuidgen", &mut app);
         assert_eq!(app.game.next_hardware_discount, Some(0.7));
 

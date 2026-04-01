@@ -85,7 +85,7 @@ const PRODUCERS: [ProducerDef; 7] = [
         ram_mb: 512.0,
         disk_mb: 8_192.0,
         log_write_rate: 1.0,
-        bw_mbps: 0.0,
+        bw_mbps: 5.0,
         unlock_threshold: 65_000.0,
     },
     ProducerDef {
@@ -97,7 +97,7 @@ const PRODUCERS: [ProducerDef; 7] = [
         ram_mb: 2_048.0,
         disk_mb: 32_768.0,
         log_write_rate: 3.0,
-        bw_mbps: 5.0,
+        bw_mbps: 20.0,
         unlock_threshold: 700_000.0,
     },
     ProducerDef {
@@ -109,7 +109,7 @@ const PRODUCERS: [ProducerDef; 7] = [
         ram_mb: 8_192.0,
         disk_mb: 131_072.0,
         log_write_rate: 10.0,
-        bw_mbps: 20.0,
+        bw_mbps: 100.0,
         unlock_threshold: 10_000_000.0,
     },
 ];

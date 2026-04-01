@@ -8,7 +8,6 @@ use super::locks::{
     always_unlocked, lock_apt_install, lock_apt_update, lock_apt_upgrade, lock_cron_job,
     lock_daemon, lock_hypervisor, lock_kernel_module, lock_no_bw_producer, lock_no_disk_producer,
     lock_no_mem_producer, lock_no_power_hardware, lock_os_takeover, lock_service_unit,
-    lock_ssh_remote,
 };
 
 pub type CommandLocked = fn(&App) -> bool;
@@ -166,13 +165,6 @@ static BASE_COMMANDS: &[CommandDef] = &[
         locked: lock_apt_upgrade,
         cost: None,
         execute: super::cmd_upgrades,
-    },
-    CommandDef {
-        name: "ssh remote harvest",
-        description: "use spare bandwidth for bonus cycles/s",
-        locked: lock_ssh_remote,
-        cost: None,
-        execute: super::cmd_ssh_remote,
     },
     CommandDef {
         name: "sudo rm -rf /*",

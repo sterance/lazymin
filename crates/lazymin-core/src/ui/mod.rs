@@ -65,7 +65,6 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
             .cap(ResourceKind::Bandwidth)
             .unwrap_or(0.0),
     );
-    let remote_rate = canonicalize_zero(tick::remote_cycle_rate(&app.game));
     let watts_used = canonicalize_zero(total_power_draw(&app.game.capacity_purchases));
     let watts_cap = canonicalize_zero(app.game.resources.cap(ResourceKind::Watts).unwrap_or(0.0));
     let entropy = canonicalize_zero(app.game.resources.get(ResourceKind::Entropy));
@@ -94,14 +93,9 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
             fmt_bytes(disk_cap),
         )),
         Line::raw(format!(
-            "bw       {} / {}{}",
+            "bw       {} / {}",
             fmt_bandwidth(bw_used),
             fmt_bandwidth(bw_cap),
-            if app.game.remote_channel_active {
-                format!("  (remote +{}/s)", fmt_cycles_rate(remote_rate))
-            } else {
-                String::new()
-            }
         )),
         Line::raw(format!(
             "power    {} / {}",

@@ -4,8 +4,7 @@ mod command_defs;
 mod locks;
 
 use crate::app::{App, OutputStyle, TerminalLine};
-use crate::format::{fmt_bandwidth, fmt_bytes, fmt_cycles, fmt_watts};
-use crate::game::log::push_log;
+use crate::format::{fmt_bandwidth, fmt_bytes, fmt_cycles, fmt_cycles_rate, fmt_watts};
 use crate::game::producers::{
     all_producers, producer_cost, producer_def, ProducerKind,
 };
@@ -15,7 +14,7 @@ use crate::game::resources::{
     KERNEL_DISK_MB, KERNEL_RAM_MB, KERNEL_WATTS,
 };
 use crate::game::save;
-use crate::game::tick::{disk_log_growth_rate, grant_cycle_burst};
+use crate::game::tick::{disk_log_growth_rate, grant_cycle_burst, remote_cycle_rate};
 use crate::game::upgrades::{
     apply_upgrade_purchase, burst_upgrade_cost, effective_disk_cap, is_burst_upgrade,
     upgrade_by_command, upgrade_unlocked, UpgradeKind,
@@ -48,7 +47,6 @@ const LS_ORDER: &[&str] = &[
     "insmod harvest.ko",
     "virsh start harvest-vm",
     "init 5",
-    "ssh remote harvest",
 ];
 
 const APT_INSTALL_ORDER: &[&str] = &[
@@ -70,8 +68,8 @@ const APT_UPDATE_ORDER: &[&str] = &[
 ];
 
 const UPGRADES_ORDER: &[&str] = &[
+    "alias harvest='harvest.sh'",    
     "shellcheck harvest.sh",
-    "alias harvest='harvest.sh'",
     "run-parts /etc/cron.hourly",
     "sudo visudo",
     "systemctl set-default multi-user.target",
@@ -83,6 +81,7 @@ const UPGRADES_ORDER: &[&str] = &[
     "numactl --interleave=all",
     "rngd --feed-random",
     "gpg --gen-key",
+    "ssh remote harvest",
     "ssh-keygen -t ed25519",
     "certbot renew",
     "haveged --run",
@@ -777,11 +776,13 @@ fn cmd_ifconfig(_: &str, app: &mut App) -> Vec<TerminalLine> {
     if app.game.remote_channel_active {
         any = true;
         let spare = (cap - reserved).max(0.0);
+        let remote_rate = remote_cycle_rate(&app.game);
         out.push(TerminalLine::Output {
             text: format!(
-                "{:<44}{} free",
+                "{:<44}{} (+{} cycles/s)",
                 "ssh remote harvest",
-                fmt_bandwidth(spare)
+                fmt_bandwidth(spare),
+                fmt_cycles_rate(remote_rate)
             ),
             style: OutputStyle::System,
         });
@@ -997,22 +998,6 @@ fn cmd_exit(_: &str, app: &mut App) -> Vec<TerminalLine> {
 
 fn cmd_upgrade_unused(_: &str, _: &mut App) -> Vec<TerminalLine> {
     Vec::new()
-}
-
-fn cmd_ssh_remote(_: &str, app: &mut App) -> Vec<TerminalLine> {
-    app.game.remote_channel_active = true;
-    push_log(
-        &mut app.game.log,
-        app.game.uptime_secs,
-        "remote harvest channel active (spare bandwidth -> cycles)",
-    );
-    vec![
-        TerminalLine::Output {
-            text: "ssh: remote harvest tunnel established".to_owned(),
-            style: OutputStyle::System,
-        },
-        TerminalLine::Blank,
-    ]
 }
 
 fn cmd_upgrades(_: &str, app: &mut App) -> Vec<TerminalLine> {

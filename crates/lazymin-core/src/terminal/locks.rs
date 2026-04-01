@@ -1,6 +1,6 @@
 use crate::app::App;
 use crate::game::producers::{producer_def, producer_unlocked, ProducerDef, ProducerKind};
-use crate::game::resources::{all_hardware, HardwareDef, ResourceKind};
+use crate::game::resources::{all_hardware, HardwareDef};
 use crate::game::state::GameState;
 use crate::game::upgrades::{all_upgrades, upgrade_unlocked};
 
@@ -78,16 +78,5 @@ pub(super) fn lock_hypervisor(app: &App) -> bool {
 }
 pub(super) fn lock_os_takeover(app: &App) -> bool {
     locked_producer(app, ProducerKind::OsTakeover)
-}
-
-pub(super) fn lock_ssh_remote(app: &App) -> bool {
-    app.game.remote_channel_active
-        || app
-            .game
-            .capacity_purchases
-            .get(&ResourceKind::Bandwidth)
-            .copied()
-            .unwrap_or(0)
-            < 1
 }
 

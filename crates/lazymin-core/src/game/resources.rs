@@ -10,7 +10,7 @@ use super::producers::ProducerKind;
 pub const STARTING_RAM_MB: f64 = 16.0;
 pub const STARTING_DISK_MB: f64 = 512.0;
 pub const STARTING_BANDWIDTH_MBPS: f64 = 0.0;
-pub const STARTING_WATTS: f64 = 5.0;
+pub const STARTING_WATTS: f64 = 10.0;
 pub const BASE_ENTROPY_PER_SEC: f64 = 0.01;
 
 pub const KERNEL_RAM_MB: f64 = 4.0;
@@ -43,14 +43,14 @@ const HARDWARE: [HardwareDef; 4] = [
     },
     HardwareDef {
         kind: ResourceKind::Bandwidth,
-        cap_delta: 1.0,
+        cap_delta: 5.0,
         base_cost: 200.0,
         watts: 2.0,
         label: "bandwidth",
     },
     HardwareDef {
         kind: ResourceKind::Watts,
-        cap_delta: 5.0,
+        cap_delta: 10.0,
         base_cost: 75.0,
         watts: 0.0,
         label: "power",

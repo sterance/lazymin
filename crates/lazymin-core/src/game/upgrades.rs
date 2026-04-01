@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use super::log::push_log;
 use super::producers::ProducerKind;
 use super::resources::{total_power_draw, ResourceKind};
 use super::state::GameState;
@@ -26,6 +27,7 @@ pub enum UpgradeKind {
     Uuidgen,
     GpgGenKey,
     SshKeygenEd25519,
+    SshRemoteHarvest,
     MktempD,
     DdDevRandomDisk,
     CertbotRenew,
@@ -94,6 +96,7 @@ pub enum UpgradeEffect {
         factor: f64,
     },
     DiskLogReset,
+    RemoteHarvestChannel,
 }
 
 impl UpgradeEffect {
@@ -301,6 +304,14 @@ const ALL: &[UpgradeDef] = &[
         entropy_cost: 10.0,
         description: "+20% remote harvest via bandwidth",
         effect: UpgradeEffect::BandwidthRemoteMultiplier { factor: 1.2 },
+    },
+    UpgradeDef {
+        kind: UpgradeKind::SshRemoteHarvest,
+        command: "ssh remote harvest",
+        cycles_cost: 0.0,
+        entropy_cost: 0.0,
+        description: "use spare bandwidth for bonus cycles/s",
+        effect: UpgradeEffect::RemoteHarvestChannel,
     },
     UpgradeDef {
         kind: UpgradeKind::MktempD,
@@ -546,6 +557,14 @@ pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
                 .unwrap_or(&0)
                 >= 1
         }
+        UpgradeKind::SshRemoteHarvest => {
+            *state
+                .capacity_purchases
+                .get(&ResourceKind::Bandwidth)
+                .unwrap_or(&0)
+                >= 1
+                && !state.remote_channel_active
+        }
         UpgradeKind::MktempD => disk_usage_ratio(state) >= 0.75,
         UpgradeKind::DdDevRandomDisk => total_producers(&state.producers) >= 20,
         UpgradeKind::CertbotRenew => {
@@ -682,6 +701,14 @@ pub fn apply_upgrade_purchase(state: &mut GameState, kind: UpgradeKind, entropy_
     }
     match effect {
         UpgradeEffect::CycleBurst { .. } => {}
+        UpgradeEffect::RemoteHarvestChannel => {
+            state.remote_channel_active = true;
+            push_log(
+                &mut state.log,
+                state.uptime_secs,
+                "remote harvest channel active (spare bandwidth -> cycles)",
+            );
+        }
         UpgradeEffect::TimedGlobalMultiplier { .. }
         | UpgradeEffect::HardwareCostBasisReset
         | UpgradeEffect::DiskPause { .. }
