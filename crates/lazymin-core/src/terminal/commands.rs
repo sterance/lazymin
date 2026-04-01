@@ -4,7 +4,7 @@ mod command_defs;
 mod locks;
 
 use crate::app::{App, OutputStyle, TerminalLine};
-use crate::format::{fmt_bandwidth, fmt_bytes, fmt_cycles, fmt_cycles_rate, fmt_watts};
+use crate::format::{fmt_bandwidth, fmt_bytes, fmt_bytes_rate, fmt_cycles, fmt_cycles_rate, fmt_watts};
 use crate::game::producers::{
     all_producers, producer_cost, producer_def, ProducerKind,
 };
@@ -58,7 +58,6 @@ const APT_INSTALL_ORDER: &[&str] = &[
 
 const APT_UPDATE_ORDER: &[&str] = &[
     "cat /dev/urandom > /dev/null",
-    "shuf --random-source=/dev/urandom",
     "openssl rand -base64 32",
     "uuidgen",
     "mktemp -d",
@@ -66,6 +65,9 @@ const APT_UPDATE_ORDER: &[&str] = &[
     "reboot --firmware",
     "jvacuum",
 ];
+
+#[cfg(target_arch = "wasm32")]
+const BROWSER_SAVE_LOG_TEXT: &str = "progress saved to browser storage";
 
 const UPGRADES_ORDER: &[&str] = &[
     "alias harvest='harvest.sh'",    
@@ -381,76 +383,58 @@ fn cmd_harvest(_: &str, app: &mut App) -> Vec<TerminalLine> {
     ]
 }
 
-fn cmd_buy_shell_script(_: &str, app: &mut App) -> Vec<TerminalLine> {
-    buy_producer(app, ProducerKind::ShellScript)
+macro_rules! define_producer_command {
+    ($cmd_fn:ident, $cost_fn:ident, $kind:expr) => {
+        fn $cmd_fn(_: &str, app: &mut App) -> Vec<TerminalLine> {
+            buy_producer(app, $kind)
+        }
+
+        fn $cost_fn(app: &App) -> f64 {
+            producer_cost_for(app, $kind)
+        }
+    };
 }
 
-fn cmd_buy_cron_job(_: &str, app: &mut App) -> Vec<TerminalLine> {
-    buy_producer(app, ProducerKind::CronJob)
-}
-fn cmd_buy_daemon(_: &str, app: &mut App) -> Vec<TerminalLine> {
-    buy_producer(app, ProducerKind::Daemon)
-}
-fn cmd_buy_service_unit(_: &str, app: &mut App) -> Vec<TerminalLine> {
-    buy_producer(app, ProducerKind::ServiceUnit)
-}
-fn cmd_buy_kernel_module(_: &str, app: &mut App) -> Vec<TerminalLine> {
-    buy_producer(app, ProducerKind::KernelModule)
-}
-fn cmd_buy_hypervisor(_: &str, app: &mut App) -> Vec<TerminalLine> {
-    buy_producer(app, ProducerKind::Hypervisor)
-}
-fn cmd_buy_os_takeover(_: &str, app: &mut App) -> Vec<TerminalLine> {
-    buy_producer(app, ProducerKind::OsTakeover)
+macro_rules! define_capacity_command {
+    ($cmd_fn:ident, $cost_fn:ident, $kind:expr) => {
+        fn $cmd_fn(_: &str, app: &mut App) -> Vec<TerminalLine> {
+            buy_capacity(app, $kind)
+        }
+
+        fn $cost_fn(app: &App) -> f64 {
+            capacity_command_cost_for(app, $kind)
+        }
+    };
 }
 
-fn shell_script_cost(app: &App) -> f64 {
-    producer_cost_for(app, ProducerKind::ShellScript)
-}
-fn cron_job_cost(app: &App) -> f64 {
-    producer_cost_for(app, ProducerKind::CronJob)
-}
-fn daemon_cost(app: &App) -> f64 {
-    producer_cost_for(app, ProducerKind::Daemon)
-}
-fn service_unit_cost(app: &App) -> f64 {
-    producer_cost_for(app, ProducerKind::ServiceUnit)
-}
-fn kernel_module_cost(app: &App) -> f64 {
-    producer_cost_for(app, ProducerKind::KernelModule)
-}
-fn hypervisor_cost(app: &App) -> f64 {
-    producer_cost_for(app, ProducerKind::Hypervisor)
-}
-fn os_takeover_cost(app: &App) -> f64 {
-    producer_cost_for(app, ProducerKind::OsTakeover)
-}
+define_producer_command!(
+    cmd_buy_shell_script,
+    shell_script_cost,
+    ProducerKind::ShellScript
+);
+define_producer_command!(cmd_buy_cron_job, cron_job_cost, ProducerKind::CronJob);
+define_producer_command!(cmd_buy_daemon, daemon_cost, ProducerKind::Daemon);
+define_producer_command!(
+    cmd_buy_service_unit,
+    service_unit_cost,
+    ProducerKind::ServiceUnit
+);
+define_producer_command!(
+    cmd_buy_kernel_module,
+    kernel_module_cost,
+    ProducerKind::KernelModule
+);
+define_producer_command!(cmd_buy_hypervisor, hypervisor_cost, ProducerKind::Hypervisor);
+define_producer_command!(
+    cmd_buy_os_takeover,
+    os_takeover_cost,
+    ProducerKind::OsTakeover
+);
 
-fn apt_ram_cost(app: &App) -> f64 {
-    capacity_command_cost_for(app, ResourceKind::Ram)
-}
-fn apt_disk_cost(app: &App) -> f64 {
-    capacity_command_cost_for(app, ResourceKind::Disk)
-}
-fn apt_bw_cost(app: &App) -> f64 {
-    capacity_command_cost_for(app, ResourceKind::Bandwidth)
-}
-fn apt_watts_cost(app: &App) -> f64 {
-    capacity_command_cost_for(app, ResourceKind::Watts)
-}
-
-fn cmd_buy_ram(_: &str, app: &mut App) -> Vec<TerminalLine> {
-    buy_capacity(app, ResourceKind::Ram)
-}
-fn cmd_buy_disk(_: &str, app: &mut App) -> Vec<TerminalLine> {
-    buy_capacity(app, ResourceKind::Disk)
-}
-fn cmd_buy_bw(_: &str, app: &mut App) -> Vec<TerminalLine> {
-    buy_capacity(app, ResourceKind::Bandwidth)
-}
-fn cmd_buy_watts(_: &str, app: &mut App) -> Vec<TerminalLine> {
-    buy_capacity(app, ResourceKind::Watts)
-}
+define_capacity_command!(cmd_buy_ram, apt_ram_cost, ResourceKind::Ram);
+define_capacity_command!(cmd_buy_disk, apt_disk_cost, ResourceKind::Disk);
+define_capacity_command!(cmd_buy_bw, apt_bw_cost, ResourceKind::Bandwidth);
+define_capacity_command!(cmd_buy_watts, apt_watts_cost, ResourceKind::Watts);
 
 fn apt_install_resource(name: &str) -> Option<ResourceKind> {
     match name {
@@ -709,7 +693,7 @@ fn cmd_du(_: &str, app: &mut App) -> Vec<TerminalLine> {
     if logs > 0.0 {
         let log_rate = disk_log_growth_rate(&app.game);
         let rate_suffix = if log_rate > 0.0 {
-            format!("  (+{}/s)", fmt_bytes(log_rate))
+            format!("  (+{})", fmt_bytes_rate(log_rate))
         } else {
             String::new()
         };
@@ -986,10 +970,13 @@ fn cmd_exit(_: &str, app: &mut App) -> Vec<TerminalLine> {
     #[cfg(target_arch = "wasm32")]
     {
         use crate::game::log::push_log;
+        app.game
+            .log
+            .retain(|entry| entry.text != BROWSER_SAVE_LOG_TEXT);
         push_log(
             &mut app.game.log,
             app.game.uptime_secs,
-            "game saved to browser storage",
+            BROWSER_SAVE_LOG_TEXT,
         );
     }
     app.should_quit = true;

@@ -75,6 +75,27 @@ pub fn fmt_bytes(value_mb: f64) -> String {
     }
 }
 
+const STORAGE_RATE_UNIT_LABELS: [&str; 8] = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s", "PB/s", "EB/s", "ZB/s"];
+
+pub fn fmt_bytes_rate(value_mb_per_s: f64) -> String {
+    let bytes_per_s = canonicalize_zero(value_mb_per_s * 1024.0 * 1024.0);
+    let abs = bytes_per_s.abs();
+    let mut tier = 0usize;
+    let mut threshold = 1024.0;
+    while tier + 1 < STORAGE_RATE_UNIT_LABELS.len() && abs >= threshold {
+        tier += 1;
+        threshold *= 1024.0;
+    }
+    let divisor = 1024.0_f64.powi(tier as i32);
+    let scaled = bytes_per_s / divisor;
+    let label = STORAGE_RATE_UNIT_LABELS[tier];
+    if scaled.fract().abs() < 1e-9 {
+        format!("{scaled:.0} {label}")
+    } else {
+        format!("{scaled:.1} {label}")
+    }
+}
+
 const BANDWIDTH_UNIT_LABELS: [&str; 8] = [
     "Mbps", "Gbps", "Tbps", "Pbps", "Ebps", "Zbps", "Ybps", "Ybps",
 ];
@@ -199,6 +220,14 @@ mod tests {
         let huge_mb = 1024.0_f64.powi(6);
         let s = fmt_bytes(huge_mb);
         assert!(s.contains("ZB"));
+    }
+
+    #[test]
+    fn bytes_rate_scales_small_medium_large() {
+        assert_eq!(fmt_bytes_rate(0.0005), "524.3 B/s");
+        assert_eq!(fmt_bytes_rate(0.5), "512 KB/s");
+        assert_eq!(fmt_bytes_rate(5.0), "5 MB/s");
+        assert_eq!(fmt_bytes_rate(2048.0), "2 GB/s");
     }
 
     #[test]

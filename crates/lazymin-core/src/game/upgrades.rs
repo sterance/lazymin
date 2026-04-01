@@ -22,7 +22,6 @@ pub enum UpgradeKind {
     NumactlInterleave,
     RngdFeedRandom,
     CatDevUrandom,
-    ShufRandomSource,
     OpensslRandBase64,
     Uuidgen,
     GpgGenKey,
@@ -256,18 +255,6 @@ const ALL: &[UpgradeDef] = &[
         description: "instant burst: 60s of current production",
         effect: UpgradeEffect::CycleBurst {
             seconds_worth: 60.0,
-        },
-    },
-    UpgradeDef {
-        kind: UpgradeKind::ShufRandomSource,
-        command: "shuf --random-source=/dev/urandom",
-        cycles_cost: 0.0,
-        entropy_cost: 2.0,
-        description: "randomize next 5 producer purchase costs (50-150%)",
-        effect: UpgradeEffect::RandomCostVariance {
-            count: 5,
-            min_factor: 0.5,
-            max_factor: 1.5,
         },
     },
     UpgradeDef {
@@ -523,7 +510,7 @@ pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
                 >= 5
         }
         UpgradeKind::NumactlInterleave => total_producers(&state.producers) >= 100,
-        UpgradeKind::RngdFeedRandom => late_purchases_count_for_rngd(state) >= 3,
+        UpgradeKind::RngdFeedRandom => late_purchases_count_for_rngd(state) >= 1,
         UpgradeKind::CatDevUrandom => {
             state
                 .producers
@@ -532,7 +519,6 @@ pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
                 .unwrap_or(0)
                 >= 3
         }
-        UpgradeKind::ShufRandomSource => state.total_cycles_earned >= 500.0,
         UpgradeKind::OpensslRandBase64 => {
             state
                 .producers

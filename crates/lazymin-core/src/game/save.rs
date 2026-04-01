@@ -36,7 +36,13 @@ fn format_uptime_hms(seconds: f64) -> String {
     format!("{hours:02}:{minutes:02}:{secs:02}")
 }
 
+const RESTORE_LOG_PREFIX: &str = "session restored (prior session uptime ";
+
 pub fn append_restore_log_line(state: &mut GameState) {
+    state
+        .log
+        .retain(|entry| !entry.text.starts_with(RESTORE_LOG_PREFIX));
+
     let label = format_uptime_hms(state.uptime_secs);
     push_log(
         &mut state.log,
