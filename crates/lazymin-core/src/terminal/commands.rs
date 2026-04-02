@@ -14,7 +14,9 @@ use crate::game::resources::{
     KERNEL_DISK_MB, KERNEL_RAM_MB, KERNEL_WATTS,
 };
 use crate::game::save;
-use crate::game::tick::{disk_log_growth_rate, grant_cycle_burst, remote_cycle_rate};
+use crate::game::tick::{
+    coolant_unit_price, disk_log_growth_rate, grant_cycle_burst, remote_cycle_rate,
+};
 use crate::game::upgrades::{
     apply_upgrade_purchase, burst_upgrade_cost, effective_disk_cap, is_burst_upgrade,
     upgrade_by_command, upgrade_unlocked, UpgradeKind,
@@ -84,6 +86,7 @@ const UPGRADES_ORDER: &[&str] = &[
     "rngd --feed-random",
     "gpg --gen-key",
     "ssh remote harvest",
+    "ssh market",
     "ssh-keygen -t ed25519",
     "certbot renew",
     "haveged --run",
@@ -435,6 +438,27 @@ define_capacity_command!(cmd_buy_ram, apt_ram_cost, ResourceKind::Ram);
 define_capacity_command!(cmd_buy_disk, apt_disk_cost, ResourceKind::Disk);
 define_capacity_command!(cmd_buy_bw, apt_bw_cost, ResourceKind::Bandwidth);
 define_capacity_command!(cmd_buy_watts, apt_watts_cost, ResourceKind::Watts);
+
+pub(super) fn market_buy_cost(app: &App) -> f64 {
+    coolant_unit_price(&app.game)
+}
+
+pub(super) fn cmd_market_buy(_: &str, app: &mut App) -> Vec<TerminalLine> {
+    let price = coolant_unit_price(&app.game);
+    app.game.resources.deduct(price);
+    app.game.coolant += 1.0;
+    vec![
+        TerminalLine::Output {
+            text: format!(
+                "coolant +1 (now {:.0}) -- -{} cycles",
+                app.game.coolant,
+                fmt_cycles(price)
+            ),
+            style: OutputStyle::System,
+        },
+        TerminalLine::Blank,
+    ]
+}
 
 fn apt_install_resource(name: &str) -> Option<ResourceKind> {
     match name {

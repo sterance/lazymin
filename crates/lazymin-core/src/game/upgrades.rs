@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use super::log::push_log;
-use super::producers::ProducerKind;
+use super::producers::{producer_def, ProducerKind};
 use super::resources::{total_power_draw, ResourceKind};
 use super::state::GameState;
 
@@ -27,6 +27,7 @@ pub enum UpgradeKind {
     GpgGenKey,
     SshKeygenEd25519,
     SshRemoteHarvest,
+    SshMarket,
     MktempD,
     DdDevRandomDisk,
     CertbotRenew,
@@ -96,6 +97,7 @@ pub enum UpgradeEffect {
     },
     DiskLogReset,
     RemoteHarvestChannel,
+    MarketUnlock,
 }
 
 impl UpgradeEffect {
@@ -299,6 +301,14 @@ const ALL: &[UpgradeDef] = &[
         entropy_cost: 0.0,
         description: "use spare bandwidth for bonus cycles/s",
         effect: UpgradeEffect::RemoteHarvestChannel,
+    },
+    UpgradeDef {
+        kind: UpgradeKind::SshMarket,
+        command: "ssh market",
+        cycles_cost: 100_000.0,
+        entropy_cost: 0.0,
+        description: "grants access to overclocking and the coolant market",
+        effect: UpgradeEffect::MarketUnlock,
     },
     UpgradeDef {
         kind: UpgradeKind::MktempD,
@@ -551,6 +561,10 @@ pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
                 >= 1
                 && !state.remote_channel_active
         }
+        UpgradeKind::SshMarket => state
+            .producers
+            .iter()
+            .any(|(kind, count)| *count > 0 && producer_def(*kind).bw_mbps > 0.0),
         UpgradeKind::MktempD => disk_usage_ratio(state) >= 0.75,
         UpgradeKind::DdDevRandomDisk => total_producers(&state.producers) >= 20,
         UpgradeKind::CertbotRenew => {
@@ -697,6 +711,20 @@ pub fn apply_upgrade_purchase(state: &mut GameState, kind: UpgradeKind, entropy_
                 "remote harvest channel active (spare bandwidth -> cycles)",
             );
         }
+        UpgradeEffect::MarketUnlock => {
+            state.market_unlocked = true;
+            if state.coolant_price <= 0.0 {
+                state.coolant_price = crate::game::tick::market_anchor_price(state);
+            }
+            if state.market_price_history.is_empty() {
+                state.market_price_history.push_back(state.coolant_price);
+            }
+            push_log(
+                &mut state.log,
+                state.uptime_secs,
+                "market unlocked: coolant trading and overclocking online",
+            );
+        }
         UpgradeEffect::TimedGlobalMultiplier { .. }
         | UpgradeEffect::HardwareCostBasisReset
         | UpgradeEffect::DiskPause { .. }
@@ -795,4 +823,30 @@ pub fn fault_inject_active(state: &GameState) -> bool {
     state
         .purchased_upgrades
         .contains(&UpgradeKind::FaultInjectEnable)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ssh_market_unlocks_after_first_bw_producer_owned() {
+        let mut state = GameState::new();
+        assert!(!upgrade_unlocked(&state, UpgradeKind::SshMarket));
+
+        state.producers.insert(ProducerKind::KernelModule, 1);
+        assert!(upgrade_unlocked(&state, UpgradeKind::SshMarket));
+    }
+
+    #[test]
+    fn ssh_market_is_one_time_and_activates_market() {
+        let mut state = GameState::new();
+        state.producers.insert(ProducerKind::KernelModule, 1);
+        assert!(upgrade_unlocked(&state, UpgradeKind::SshMarket));
+
+        apply_upgrade_purchase(&mut state, UpgradeKind::SshMarket, 0.0);
+
+        assert!(state.market_unlocked);
+        assert!(!upgrade_unlocked(&state, UpgradeKind::SshMarket));
+    }
 }

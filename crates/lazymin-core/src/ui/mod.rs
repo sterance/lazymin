@@ -29,7 +29,7 @@ fn green_border() -> Block<'static> {
 }
 
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
-    let areas = layout::compute(frame.area());
+    let areas = layout::compute(frame.area(), app.game.market_unlocked);
 
     let header_chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -108,6 +108,33 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
         .style(Style::default().fg(GREEN))
         .block(green_border().title("RESOURCES"));
     frame.render_widget(resources, areas.resources);
+
+    if let Some(market_area) = areas.market {
+        let price = canonicalize_zero(tick::coolant_unit_price(&app.game));
+        let avg_10 = canonicalize_zero(tick::market_price_average(&app.game, 10));
+        let avg_30 = canonicalize_zero(tick::market_price_average(&app.game, 30));
+        let avg_60 = canonicalize_zero(tick::market_price_average(&app.game, 60));
+        let coolant = canonicalize_zero(app.game.coolant);
+        let overclock = canonicalize_zero(tick::overclock_percent(&app.game));
+        let trend = if tick::market_trend_up(&app.game) { "↑" } else { "↓" };
+
+        let market_lines = vec![
+            Line::raw(format!("coolant cost {} cycles {}", fmt_cycles(price), trend)),
+            Line::raw("avg (10s / 30s / 60s)"),
+            Line::raw(format!(
+                "{} / {} / {}",
+                fmt_cycles(avg_10),
+                fmt_cycles(avg_30),
+                fmt_cycles(avg_60)
+            )),
+            Line::raw(format!("coolant  {:.0}", coolant)),
+            Line::raw(format!("overclock {:.0}%", overclock)),
+        ];
+        let market = Paragraph::new(market_lines)
+            .style(Style::default().fg(GREEN))
+            .block(green_border().title("MARKET"));
+        frame.render_widget(market, market_area);
+    }
 
     let terminal_inner_w = areas.terminal.width.saturating_sub(2).max(1);
     let terminal_visible_lines = areas.terminal.height.saturating_sub(2) as usize;

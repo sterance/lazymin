@@ -783,4 +783,30 @@ mod tests {
 
         assert_eq!(app.game.next_hardware_discount, Some(0.7));
     }
+
+    #[test]
+    fn market_buy_supports_times_suffix() {
+        let mut app = App::new();
+        app.game.market_unlocked = true;
+        app.game.coolant_price = 10.0;
+        app.game.resources.set(ResourceKind::Cycles, 1_000.0);
+
+        run("mb *3", &mut app);
+
+        assert_eq!(app.game.coolant, 3.0);
+        assert_eq!(app.game.resources.get(ResourceKind::Cycles), 970.0);
+    }
+
+    #[test]
+    fn market_buy_supports_max_suffix() {
+        let mut app = App::new();
+        app.game.market_unlocked = true;
+        app.game.coolant_price = 10.0;
+        app.game.resources.set(ResourceKind::Cycles, 25.0);
+
+        run("mb -max", &mut app);
+
+        assert_eq!(app.game.coolant, 2.0);
+        assert_eq!(app.game.resources.get(ResourceKind::Cycles), 5.0);
+    }
 }

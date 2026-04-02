@@ -13,11 +13,25 @@ use super::upgrades::{
 };
 
 pub const REMOTE_BW_CONVERSION: f64 = 50.0;
+pub const MARKET_TICK_INTERVAL_SECS: f64 = 1.0;
+pub const MARKET_ANCHOR_FRACTION: f64 = 0.0001;
+pub const MARKET_PRICE_MIN_FACTOR: f64 = 0.5;
+pub const MARKET_PRICE_MAX_FACTOR: f64 = 2.0;
+pub const MARKET_STEP_FRACTION: f64 = 0.05;
+pub const COOLANT_DRAIN_PER_SEC: f64 = 1.0;
+
+pub const OVERCLOCK_MIN_FACTOR: f64 = 0.01;
+pub const OVERCLOCK_NORMAL_FACTOR: f64 = 1.0;
+pub const OVERCLOCK_MAX_FACTOR: f64 = 2.0;
+pub const OVERCLOCK_NORMAL_COOLANT: f64 = 100.0;
+pub const OVERCLOCK_MAX_COOLANT: f64 = 1000.0;
+const MARKET_HISTORY_CAP: usize = 60;
 
 pub fn tick(state: &mut GameState, delta_secs: f64) {
     tick_timed_effects(state, delta_secs);
     tick_chaos_inject(state, delta_secs);
     tick_disk_logs(state, delta_secs);
+    tick_market(state, delta_secs);
 
     state.resources.rates = compute_rates(state);
     state.resources.advance(delta_secs);
@@ -147,7 +161,97 @@ pub fn production_cycles_per_second(state: &GameState) -> f64 {
         local += base * m;
     }
 
-    local * g_perm * timed_global_multiplier(state) + remote_cycles_per_second(state)
+    (local * g_perm * timed_global_multiplier(state) + remote_cycles_per_second(state))
+        * overclock_multiplier(state)
+}
+
+pub fn overclock_multiplier(state: &GameState) -> f64 {
+    if !state.market_unlocked {
+        return 1.0;
+    }
+    let coolant = state.coolant.max(0.0);
+    if coolant <= OVERCLOCK_NORMAL_COOLANT {
+        let t = if OVERCLOCK_NORMAL_COOLANT <= 0.0 {
+            1.0
+        } else {
+            (coolant / OVERCLOCK_NORMAL_COOLANT).clamp(0.0, 1.0)
+        };
+        return OVERCLOCK_MIN_FACTOR + t * (OVERCLOCK_NORMAL_FACTOR - OVERCLOCK_MIN_FACTOR);
+    }
+
+    let span = (OVERCLOCK_MAX_COOLANT - OVERCLOCK_NORMAL_COOLANT).max(1e-9);
+    let t = ((coolant - OVERCLOCK_NORMAL_COOLANT) / span).clamp(0.0, 1.0);
+    OVERCLOCK_NORMAL_FACTOR + t * (OVERCLOCK_MAX_FACTOR - OVERCLOCK_NORMAL_FACTOR)
+}
+
+pub fn overclock_percent(state: &GameState) -> f64 {
+    overclock_multiplier(state) * 100.0
+}
+
+pub fn market_anchor_price(state: &GameState) -> f64 {
+    (state.total_cycles_earned * MARKET_ANCHOR_FRACTION).max(0.0)
+}
+
+pub fn coolant_unit_price(state: &GameState) -> f64 {
+    if !state.market_unlocked {
+        return 0.0;
+    }
+    if state.coolant_price > 0.0 {
+        return state.coolant_price;
+    }
+    market_anchor_price(state)
+}
+
+pub fn market_price_average(state: &GameState, window_secs: usize) -> f64 {
+    if !state.market_unlocked {
+        return 0.0;
+    }
+    if state.market_price_history.is_empty() {
+        return coolant_unit_price(state);
+    }
+    let n = window_secs.max(1).min(state.market_price_history.len());
+    let sum: f64 = state.market_price_history.iter().rev().take(n).copied().sum();
+    sum / n as f64
+}
+
+pub fn market_trend_up(state: &GameState) -> bool {
+    if !state.market_unlocked || state.market_price_history.is_empty() {
+        return false;
+    }
+    let sma3 = market_price_average(state, 3);
+    let sma5 = market_price_average(state, 5);
+    sma3 > sma5
+}
+
+fn tick_market(state: &mut GameState, delta_secs: f64) {
+    if !state.market_unlocked {
+        return;
+    }
+
+    state.coolant = (state.coolant - COOLANT_DRAIN_PER_SEC * delta_secs).max(0.0);
+    state.market_tick_accumulator_secs += delta_secs;
+
+    while state.market_tick_accumulator_secs >= MARKET_TICK_INTERVAL_SECS {
+        state.market_tick_accumulator_secs -= MARKET_TICK_INTERVAL_SECS;
+
+        let anchor = market_anchor_price(state);
+        let min_price = anchor * MARKET_PRICE_MIN_FACTOR;
+        let max_price = anchor * MARKET_PRICE_MAX_FACTOR;
+
+        if state.coolant_price <= 0.0 {
+            state.coolant_price = anchor;
+        }
+
+        let step_mag = state.coolant_price * MARKET_STEP_FRACTION * state.roll_unit();
+        let sign = if state.roll_unit() < 0.5 { -1.0 } else { 1.0 };
+        let candidate = state.coolant_price + sign * step_mag;
+        state.coolant_price = candidate.clamp(min_price, max_price);
+
+        state.market_price_history.push_back(state.coolant_price);
+        while state.market_price_history.len() > MARKET_HISTORY_CAP {
+            state.market_price_history.pop_front();
+        }
+    }
 }
 
 fn timed_global_multiplier(state: &GameState) -> f64 {
@@ -239,4 +343,52 @@ pub fn grant_cycle_burst(state: &mut GameState, seconds_worth: f64) {
     let c = state.resources.get(ResourceKind::Cycles) + gain;
     state.resources.set(ResourceKind::Cycles, c);
     state.total_cycles_earned += gain;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn overclock_mapping_hits_key_points() {
+        let mut state = GameState::new();
+        state.market_unlocked = true;
+
+        state.coolant = 0.0;
+        assert!((overclock_multiplier(&state) - 0.01).abs() < 1e-9);
+
+        state.coolant = 100.0;
+        assert!((overclock_multiplier(&state) - 1.0).abs() < 1e-9);
+
+        state.coolant = 1000.0;
+        assert!((overclock_multiplier(&state) - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn market_tick_clamps_price_to_anchor_bounds() {
+        let mut state = GameState::new();
+        state.market_unlocked = true;
+        state.total_cycles_earned = 1_000_000.0;
+        state.coolant_price = market_anchor_price(&state);
+
+        tick(&mut state, 40.0);
+
+        let anchor = market_anchor_price(&state);
+        assert!(state.coolant_price >= anchor * MARKET_PRICE_MIN_FACTOR);
+        assert!(state.coolant_price <= anchor * MARKET_PRICE_MAX_FACTOR);
+        assert!(!state.market_price_history.is_empty());
+        assert!(state.market_price_history.len() <= 60);
+    }
+
+    #[test]
+    fn coolant_drain_is_flat_and_clamped_to_zero() {
+        let mut state = GameState::new();
+        state.market_unlocked = true;
+        state.coolant = 0.2;
+        state.total_cycles_earned = 10_000.0;
+        state.coolant_price = market_anchor_price(&state);
+
+        tick(&mut state, 1.0);
+        assert_eq!(state.coolant, 0.0);
+    }
 }

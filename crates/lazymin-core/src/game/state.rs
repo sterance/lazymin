@@ -45,6 +45,16 @@ pub struct GameState {
     pub chaos_monkey_boost_factor: f64,
     #[serde(default)]
     pub hit_resource_gate: bool,
+    #[serde(default)]
+    pub market_unlocked: bool,
+    #[serde(default)]
+    pub coolant: f64,
+    #[serde(default)]
+    pub coolant_price: f64,
+    #[serde(default)]
+    pub market_price_history: VecDeque<f64>,
+    #[serde(default)]
+    pub market_tick_accumulator_secs: f64,
     pub rng_state: u64,
 }
 
@@ -78,6 +88,11 @@ impl GameState {
             chaos_monkey_boost_until: None,
             chaos_monkey_boost_factor: 1.0,
             hit_resource_gate: false,
+            market_unlocked: false,
+            coolant: 1000.0,
+            coolant_price: 0.0,
+            market_price_history: VecDeque::new(),
+            market_tick_accumulator_secs: 0.0,
             rng_state: 0x9e37_79b9_7f4a_7c15,
         };
         push_log(&mut state.log, 0.0, "system initialized");

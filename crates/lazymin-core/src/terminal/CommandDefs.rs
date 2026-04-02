@@ -7,7 +7,7 @@ use crate::game::upgrades::all_upgrades;
 use super::locks::{
     always_unlocked, lock_apt_install, lock_apt_update, lock_apt_upgrade, lock_cron_job,
     lock_daemon, lock_hypervisor, lock_kernel_module, lock_no_bw_producer, lock_no_disk_producer,
-    lock_no_mem_producer, lock_no_power_hardware, lock_os_takeover, lock_service_unit,
+    lock_market, lock_no_mem_producer, lock_no_power_hardware, lock_os_takeover, lock_service_unit,
 };
 
 pub type CommandLocked = fn(&App) -> bool;
@@ -216,6 +216,13 @@ static BASE_COMMANDS: &[CommandDef] = &[
         execute: super::cmd_lshw,
     },
     CommandDef {
+        name: "mb",
+        description: "buy 1 coolant at market price",
+        locked: lock_market,
+        cost: Some(super::market_buy_cost),
+        execute: super::cmd_market_buy,
+    },
+    CommandDef {
         name: "exit",
         description: "save and quit",
         locked: always_unlocked,
@@ -274,6 +281,7 @@ mod command_order_tests {
                 || cmd.name == "unmute"
                 || cmd.name == "sudo rm -rf /*"
                 || cmd.name == "pkill"
+                || cmd.name == "mb"
             {
                 continue;
             }
