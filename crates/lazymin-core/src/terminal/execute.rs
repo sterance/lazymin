@@ -793,7 +793,7 @@ mod tests {
 
         run("mb *3", &mut app);
 
-        assert_eq!(app.game.coolant, 3.0);
+        assert_eq!(app.game.coolant, 1003.0);
         assert_eq!(app.game.resources.get(ResourceKind::Cycles), 970.0);
     }
 
@@ -806,7 +806,7 @@ mod tests {
 
         run("mb -max", &mut app);
 
-        assert_eq!(app.game.coolant, 2.0);
+        assert_eq!(app.game.coolant, 1002.0);
         assert_eq!(app.game.resources.get(ResourceKind::Cycles), 5.0);
     }
 }

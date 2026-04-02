@@ -9,7 +9,7 @@ use super::state::GameState;
 use super::upgrades::{
     bandwidth_remote_multiplier, effective_disk_cap, entropy_rate_multiplier, fault_inject_active,
     global_upgrade_multiplier, log_write_rate_multiplier, per_tier_producer_multiplier,
-    upgrade_def, TimedEffect, TimedEffectKind, UpgradeKind,
+    refresh_unlock_threshold_tracking, upgrade_def, TimedEffect, TimedEffectKind, UpgradeKind,
 };
 
 pub const REMOTE_BW_CONVERSION: f64 = 50.0;
@@ -17,7 +17,7 @@ pub const MARKET_TICK_INTERVAL_SECS: f64 = 1.0;
 pub const MARKET_ANCHOR_FRACTION: f64 = 0.0001;
 pub const MARKET_PRICE_MIN_FACTOR: f64 = 0.5;
 pub const MARKET_PRICE_MAX_FACTOR: f64 = 2.0;
-pub const MARKET_STEP_FRACTION: f64 = 0.05;
+pub const MARKET_STEP_FRACTION: f64 = 0.1;
 pub const COOLANT_DRAIN_PER_SEC: f64 = 1.0;
 
 pub const OVERCLOCK_MIN_FACTOR: f64 = 0.01;
@@ -46,6 +46,7 @@ pub fn tick(state: &mut GameState, delta_secs: f64) {
         * delta_secs;
     state.total_cycles_earned += earned.max(0.0);
     state.uptime_secs += delta_secs;
+    refresh_unlock_threshold_tracking(state);
     check_unlocks(state);
 }
 

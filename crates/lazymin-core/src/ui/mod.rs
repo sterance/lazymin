@@ -111,24 +111,39 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
 
     if let Some(market_area) = areas.market {
         let price = canonicalize_zero(tick::coolant_unit_price(&app.game));
-        let avg_10 = canonicalize_zero(tick::market_price_average(&app.game, 10));
-        let avg_30 = canonicalize_zero(tick::market_price_average(&app.game, 30));
+        // let avg_10 = canonicalize_zero(tick::market_price_average(&app.game, 10));
+        // let avg_30 = canonicalize_zero(tick::market_price_average(&app.game, 30));
         let avg_60 = canonicalize_zero(tick::market_price_average(&app.game, 60));
         let coolant = canonicalize_zero(app.game.coolant);
         let overclock = canonicalize_zero(tick::overclock_percent(&app.game));
-        let trend = if tick::market_trend_up(&app.game) { "↑" } else { "↓" };
+        let trend = if tick::market_trend_up(&app.game) { "▲" } else { "▼" };
+        let market_avg_style = Style::default().fg(GREEN).add_modifier(Modifier::DIM);
+        let market_green = Style::default().fg(GREEN);
+        let trend_style = Style::default().fg(GREEN).add_modifier(Modifier::BOLD);
+        let oc_pct_style = terminal_overclock_pct_style(overclock);
+        let coolant_oc_line = Line::from(vec![
+            Span::styled(format!("coolant: {:.0} (OC: ", coolant), market_green),
+            Span::styled(format!("{:.0}%", overclock), oc_pct_style),
+            Span::styled(")", market_green),
+        ]);
 
         let market_lines = vec![
-            Line::raw(format!("coolant cost {} cycles {}", fmt_cycles(price), trend)),
-            Line::raw("avg (10s / 30s / 60s)"),
-            Line::raw(format!(
-                "{} / {} / {}",
-                fmt_cycles(avg_10),
-                fmt_cycles(avg_30),
-                fmt_cycles(avg_60)
-            )),
-            Line::raw(format!("coolant  {:.0}", coolant)),
-            Line::raw(format!("overclock {:.0}%", overclock)),
+            coolant_oc_line,
+            Line::raw(""),
+            Line::from(vec![
+                Span::styled(format!("unit cost: {} cycles ", fmt_cycles(price)), market_green),
+                Span::styled(trend, trend_style),
+            ]),
+            Line::styled(format!("60s average: {} cycles", fmt_cycles(avg_60)), market_avg_style),
+            // Line::styled(
+            //     format!(
+            //         "{} / {} / {}",
+            //         fmt_cycles(avg_10),
+            //         fmt_cycles(avg_30),
+            //         fmt_cycles(avg_60)
+            //     ),
+            //     market_avg_style,
+            // ),
         ];
         let market = Paragraph::new(market_lines)
             .style(Style::default().fg(GREEN))
@@ -379,5 +394,17 @@ fn output_style(style: OutputStyle) -> Style {
         OutputStyle::Info => Style::default().fg(Color::Cyan),
         OutputStyle::System => Style::default().fg(GREEN).add_modifier(Modifier::DIM),
         OutputStyle::Literal => Style::default().fg(GREEN).add_modifier(Modifier::DIM),
+    }
+}
+
+fn terminal_overclock_pct_style(percent: f64) -> Style {
+    if percent > 100.0 {
+        Style::default().fg(GREEN).add_modifier(Modifier::BOLD)
+    } else if percent >= 30.0 {
+        output_style(OutputStyle::Normal)
+    } else if percent >= 10.0 {
+        Style::default().fg(Color::Yellow)
+    } else {
+        output_style(OutputStyle::Error)
     }
 }

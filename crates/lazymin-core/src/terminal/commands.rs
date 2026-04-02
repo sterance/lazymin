@@ -19,7 +19,7 @@ use crate::game::tick::{
 };
 use crate::game::upgrades::{
     apply_upgrade_purchase, burst_upgrade_cost, effective_disk_cap, is_burst_upgrade,
-    upgrade_by_command, upgrade_unlocked, UpgradeKind,
+    refresh_unlock_threshold_tracking, upgrade_by_command, upgrade_unlocked, UpgradeKind,
 };
 
 use command_defs::registry_command;
@@ -159,8 +159,9 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
         return vec![
             TerminalLine::Output {
                 text: format!(
-                    "insufficient memory (need {:.0} MB, have {:.0} MB free)",
-                    def.ram_mb, free_ram
+                    "insufficient memory (need {}, have {} free)",
+                    fmt_bytes(def.ram_mb),
+                    fmt_bytes(free_ram)
                 ),
                 style: OutputStyle::Error,
             },
@@ -177,8 +178,9 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
             return vec![
                 TerminalLine::Output {
                     text: format!(
-                        "insufficient disk space (need {:.0} MB, have {:.0} MB free)",
-                        def.disk_mb, free
+                        "insufficient disk space (need {}, have {} free)",
+                        fmt_bytes(def.disk_mb),
+                        fmt_bytes(free)
                     ),
                     style: OutputStyle::Error,
                 },
@@ -217,21 +219,21 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
     }
     app.game.resources.deduct(price);
 
-    let owned = app
-        .game
-        .producers
-        .entry(kind)
-        .and_modify(|count| *count += 1)
-        .or_insert(1);
+    let owned_count = {
+        let e = app.game.producers.entry(kind).or_insert(0);
+        *e += 1;
+        *e
+    };
 
     if owned_before == 0 {
         app.game.ever_owned_producers.insert(kind);
     }
+    refresh_unlock_threshold_tracking(&mut app.game);
 
     vec![
         TerminalLine::Output {
             text: format!(
-                "[{owned}] {}  -- +{:.0} cycles/s",
+                "[{owned_count}] {}  -- +{:.0} cycles/s",
                 def.command, def.base_cycles_per_s
             ),
             style: OutputStyle::System,

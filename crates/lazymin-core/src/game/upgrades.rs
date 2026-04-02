@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
 use super::log::push_log;
-use super::producers::{producer_def, ProducerKind};
+use super::producers::{all_producers, ProducerKind};
 use super::resources::{total_power_draw, ResourceKind};
 use super::state::GameState;
 
@@ -429,10 +427,6 @@ pub fn upgrade_purchased_at_least_once(state: &GameState, kind: UpgradeKind) -> 
     }
 }
 
-fn total_producers(producers: &HashMap<ProducerKind, u32>) -> u32 {
-    producers.values().sum()
-}
-
 const LATE_FOR_RNGD: &[UpgradeKind] = &[
     UpgradeKind::BpftraceTracepoint,
     UpgradeKind::NumactlInterleave,
@@ -465,6 +459,88 @@ pub fn effective_disk_cap(state: &GameState) -> f64 {
     base * state.disk_cap_scale
 }
 
+pub fn refresh_unlock_threshold_tracking(state: &mut GameState) {
+    for (kind, &count) in &state.producers {
+        let e = state.producer_peak_counts.entry(*kind).or_insert(0);
+        *e = (*e).max(count);
+    }
+    let total: u32 = state.producers.values().sum();
+    state.max_total_producers_peak = state.max_total_producers_peak.max(total);
+
+    let ratio = disk_usage_ratio(state);
+    state.disk_usage_ratio_peak = state.disk_usage_ratio_peak.max(ratio);
+
+    let cap = state.resources.cap(ResourceKind::Watts).unwrap_or(0.0);
+    if cap > 1e-9 {
+        let used = total_power_draw(&state.capacity_purchases);
+        state.watts_utilization_peak = state.watts_utilization_peak.max(used / cap);
+    }
+
+    if state.disk_log_usage > 1e-9 {
+        state.ever_had_disk_log_usage = true;
+    }
+
+    apply_purchase_implied_unlock_floors(state);
+}
+
+fn apply_purchase_implied_unlock_floors(state: &mut GameState) {
+    if upgrade_purchased_at_least_once(state, UpgradeKind::MountTmpfs) {
+        state.max_total_producers_peak = state.max_total_producers_peak.max(10);
+    }
+    if upgrade_purchased_at_least_once(state, UpgradeKind::NumactlInterleave) {
+        state.max_total_producers_peak = state.max_total_producers_peak.max(100);
+    }
+    if upgrade_purchased_at_least_once(state, UpgradeKind::DdDevRandomDisk) {
+        state.max_total_producers_peak = state.max_total_producers_peak.max(20);
+    }
+    if upgrade_purchased_at_least_once(state, UpgradeKind::SystemctlSetDefaultMultiUser) {
+        let e = state
+            .producer_peak_counts
+            .entry(ProducerKind::Daemon)
+            .or_insert(0);
+        *e = (*e).max(5);
+    }
+    if upgrade_purchased_at_least_once(state, UpgradeKind::ZstdTrain) {
+        let e = state
+            .producer_peak_counts
+            .entry(ProducerKind::ServiceUnit)
+            .or_insert(0);
+        *e = (*e).max(3);
+    }
+    if upgrade_purchased_at_least_once(state, UpgradeKind::BpftraceTracepoint)
+        || upgrade_purchased_at_least_once(state, UpgradeKind::FaultInjectEnable)
+    {
+        let e = state
+            .producer_peak_counts
+            .entry(ProducerKind::KernelModule)
+            .or_insert(0);
+        *e = (*e).max(5);
+    }
+    if upgrade_purchased_at_least_once(state, UpgradeKind::CatDevUrandom) {
+        let e = state
+            .producer_peak_counts
+            .entry(ProducerKind::ShellScript)
+            .or_insert(0);
+        *e = (*e).max(3);
+    }
+    if upgrade_purchased_at_least_once(state, UpgradeKind::UpscMyups) {
+        state.watts_utilization_peak = state.watts_utilization_peak.max(0.8);
+    }
+    if upgrade_purchased_at_least_once(state, UpgradeKind::LogrotateUpgrade) {
+        state.disk_usage_ratio_peak = state.disk_usage_ratio_peak.max(0.5);
+    }
+    if upgrade_purchased_at_least_once(state, UpgradeKind::MktempD) {
+        state.disk_usage_ratio_peak = state.disk_usage_ratio_peak.max(0.75);
+    }
+    if upgrade_purchased_at_least_once(state, UpgradeKind::JournaldVacuum) {
+        state.ever_had_disk_log_usage = true;
+    }
+}
+
+fn producer_peak(state: &GameState, kind: ProducerKind) -> u32 {
+    state.producer_peak_counts.get(&kind).copied().unwrap_or(0)
+}
+
 pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
     if !is_burst_upgrade(kind) && state.purchased_upgrades.contains(&kind) {
         return false;
@@ -472,79 +548,33 @@ pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
     match kind {
         UpgradeKind::ShellcheckHarvestSh => {
             state
-                .producers
-                .get(&ProducerKind::ShellScript)
-                .copied()
-                .unwrap_or(0)
-                >= 1
+                .ever_owned_producers
+                .contains(&ProducerKind::ShellScript)
         }
         UpgradeKind::AliasHarvest => state.manual_runs >= 10,
         UpgradeKind::RunPartsCronHourly => {
-            state
-                .producers
-                .get(&ProducerKind::CronJob)
-                .copied()
-                .unwrap_or(0)
-                >= 1
+            state.ever_owned_producers.contains(&ProducerKind::CronJob)
         }
         UpgradeKind::SudoVisudo => state.total_cycles_earned >= 1_000.0,
         UpgradeKind::SystemctlSetDefaultMultiUser => {
-            state
-                .producers
-                .get(&ProducerKind::Daemon)
-                .copied()
-                .unwrap_or(0)
-                >= 5
+            producer_peak(state, ProducerKind::Daemon) >= 5
         }
-        UpgradeKind::MountTmpfs => total_producers(&state.producers) >= 10,
-        UpgradeKind::UpscMyups => {
-            let cap = state.resources.cap(ResourceKind::Watts).unwrap_or(1.0);
-            let used = total_power_draw(&state.capacity_purchases);
-            cap > 0.0 && used / cap >= 0.8
-        }
-        UpgradeKind::ZstdTrain => {
-            state
-                .producers
-                .get(&ProducerKind::ServiceUnit)
-                .copied()
-                .unwrap_or(0)
-                >= 3
-        }
-        UpgradeKind::LogrotateUpgrade => disk_usage_ratio(state) >= 0.5,
-        UpgradeKind::BpftraceTracepoint => {
-            state
-                .producers
-                .get(&ProducerKind::KernelModule)
-                .copied()
-                .unwrap_or(0)
-                >= 5
-        }
-        UpgradeKind::NumactlInterleave => total_producers(&state.producers) >= 100,
+        UpgradeKind::MountTmpfs => state.max_total_producers_peak >= 10,
+        UpgradeKind::UpscMyups => state.watts_utilization_peak >= 0.8,
+        UpgradeKind::ZstdTrain => producer_peak(state, ProducerKind::ServiceUnit) >= 3,
+        UpgradeKind::LogrotateUpgrade => state.disk_usage_ratio_peak >= 0.5,
+        UpgradeKind::BpftraceTracepoint => producer_peak(state, ProducerKind::KernelModule) >= 5,
+        UpgradeKind::NumactlInterleave => state.max_total_producers_peak >= 100,
         UpgradeKind::RngdFeedRandom => late_purchases_count_for_rngd(state) >= 1,
-        UpgradeKind::CatDevUrandom => {
-            state
-                .producers
-                .get(&ProducerKind::ShellScript)
-                .copied()
-                .unwrap_or(0)
-                >= 3
-        }
+        UpgradeKind::CatDevUrandom => producer_peak(state, ProducerKind::ShellScript) >= 3,
         UpgradeKind::OpensslRandBase64 => {
-            state
-                .producers
-                .get(&ProducerKind::CronJob)
-                .copied()
-                .unwrap_or(0)
-                >= 1
+            state.ever_owned_producers.contains(&ProducerKind::CronJob)
         }
         UpgradeKind::Uuidgen => state.capacity_purchases.values().copied().sum::<u32>() > 0,
         UpgradeKind::GpgGenKey => {
             state
-                .producers
-                .get(&ProducerKind::ServiceUnit)
-                .copied()
-                .unwrap_or(0)
-                >= 1
+                .ever_owned_producers
+                .contains(&ProducerKind::ServiceUnit)
         }
         UpgradeKind::SshKeygenEd25519 => {
             *state
@@ -561,49 +591,32 @@ pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
                 >= 1
                 && !state.remote_channel_active
         }
-        UpgradeKind::SshMarket => state
-            .producers
-            .iter()
-            .any(|(kind, count)| *count > 0 && producer_def(*kind).bw_mbps > 0.0),
-        UpgradeKind::MktempD => disk_usage_ratio(state) >= 0.75,
-        UpgradeKind::DdDevRandomDisk => total_producers(&state.producers) >= 20,
+        UpgradeKind::SshMarket => all_producers().iter().any(|d| {
+            d.bw_mbps > 0.0 && state.ever_owned_producers.contains(&d.kind)
+        }),
+        UpgradeKind::MktempD => state.disk_usage_ratio_peak >= 0.75,
+        UpgradeKind::DdDevRandomDisk => state.max_total_producers_peak >= 20,
         UpgradeKind::CertbotRenew => {
             state
-                .producers
-                .get(&ProducerKind::KernelModule)
-                .copied()
-                .unwrap_or(0)
-                >= 1
+                .ever_owned_producers
+                .contains(&ProducerKind::KernelModule)
         }
         UpgradeKind::HavegedRun => state.total_entropy_spent >= 50.0,
         UpgradeKind::StressNgCpu => {
             state
-                .producers
-                .get(&ProducerKind::Hypervisor)
-                .copied()
-                .unwrap_or(0)
-                >= 1
+                .ever_owned_producers
+                .contains(&ProducerKind::Hypervisor)
         }
-        UpgradeKind::FaultInjectEnable => {
-            state
-                .producers
-                .get(&ProducerKind::KernelModule)
-                .copied()
-                .unwrap_or(0)
-                >= 5
-        }
+        UpgradeKind::FaultInjectEnable => producer_peak(state, ProducerKind::KernelModule) >= 5,
         UpgradeKind::RebootFirmware => {
             state.capacity_purchases.values().copied().sum::<u32>() >= 20
         }
         UpgradeKind::Init0Init6 => {
             state
-                .producers
-                .get(&ProducerKind::OsTakeover)
-                .copied()
-                .unwrap_or(0)
-                >= 1
+                .ever_owned_producers
+                .contains(&ProducerKind::OsTakeover)
         }
-        UpgradeKind::JournaldVacuum => state.disk_log_usage > 0.0,
+        UpgradeKind::JournaldVacuum => state.ever_had_disk_log_usage,
     }
 }
 
@@ -835,6 +848,9 @@ mod tests {
         assert!(!upgrade_unlocked(&state, UpgradeKind::SshMarket));
 
         state.producers.insert(ProducerKind::KernelModule, 1);
+        state
+            .ever_owned_producers
+            .insert(ProducerKind::KernelModule);
         assert!(upgrade_unlocked(&state, UpgradeKind::SshMarket));
     }
 
@@ -842,6 +858,9 @@ mod tests {
     fn ssh_market_is_one_time_and_activates_market() {
         let mut state = GameState::new();
         state.producers.insert(ProducerKind::KernelModule, 1);
+        state
+            .ever_owned_producers
+            .insert(ProducerKind::KernelModule);
         assert!(upgrade_unlocked(&state, UpgradeKind::SshMarket));
 
         apply_upgrade_purchase(&mut state, UpgradeKind::SshMarket, 0.0);

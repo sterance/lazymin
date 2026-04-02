@@ -40,7 +40,7 @@ pub fn compute(area: Rect, market_unlocked: bool) -> AppAreas {
     let (resources, market) = if market_unlocked {
         let left = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(8), Constraint::Length(7)])
+            .constraints([Constraint::Min(8), Constraint::Length(6)])
             .split(top[0]);
         (left[0], Some(left[1]))
     } else {

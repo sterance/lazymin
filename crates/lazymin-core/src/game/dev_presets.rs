@@ -8,6 +8,7 @@ use super::resources::{
     STARTING_WATTS,
 };
 use super::state::GameState;
+use super::upgrades::refresh_unlock_threshold_tracking;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DevTier {
@@ -127,6 +128,7 @@ pub fn dev_game_state(tier: DevTier) -> GameState {
         0.0,
         format!("dev preset: {}", tier.as_str()),
     );
+    refresh_unlock_threshold_tracking(&mut state);
     state
 }
 
