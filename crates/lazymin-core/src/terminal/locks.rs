@@ -61,6 +61,10 @@ pub(super) fn lock_no_power_hardware(app: &App) -> bool {
     !any_hardware_purchased(&app.game, |def| def.watts > 0.0)
 }
 
+pub(super) fn lock_market(app: &App) -> bool {
+    !app.game.market_unlocked
+}
+
 pub(super) fn lock_cron_job(app: &App) -> bool {
     locked_producer(app, ProducerKind::CronJob)
 }

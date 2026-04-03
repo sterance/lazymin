@@ -29,7 +29,7 @@ fn green_border() -> Block<'static> {
 }
 
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
-    let areas = layout::compute(frame.area());
+    let areas = layout::compute(frame.area(), app.game.market_unlocked);
 
     let header_chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -108,6 +108,48 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
         .style(Style::default().fg(GREEN))
         .block(green_border().title("RESOURCES"));
     frame.render_widget(resources, areas.resources);
+
+    if let Some(market_area) = areas.market {
+        let price = canonicalize_zero(tick::coolant_unit_price(&app.game));
+        // let avg_10 = canonicalize_zero(tick::market_price_average(&app.game, 10));
+        // let avg_30 = canonicalize_zero(tick::market_price_average(&app.game, 30));
+        let avg_60 = canonicalize_zero(tick::market_price_average(&app.game, 60));
+        let coolant = canonicalize_zero(app.game.coolant);
+        let overclock = canonicalize_zero(tick::overclock_percent(&app.game));
+        let trend = if tick::market_trend_up(&app.game) { "▲" } else { "▼" };
+        let market_avg_style = Style::default().fg(GREEN).add_modifier(Modifier::DIM);
+        let market_green = Style::default().fg(GREEN);
+        let trend_style = Style::default().fg(GREEN).add_modifier(Modifier::BOLD);
+        let oc_pct_style = terminal_overclock_pct_style(overclock);
+        let coolant_oc_line = Line::from(vec![
+            Span::styled(format!("coolant: {:.0} (OC: ", coolant), market_green),
+            Span::styled(format!("{:.0}%", overclock), oc_pct_style),
+            Span::styled(")", market_green),
+        ]);
+
+        let market_lines = vec![
+            coolant_oc_line,
+            Line::raw(""),
+            Line::from(vec![
+                Span::styled(format!("unit cost: {} cycles ", fmt_cycles(price)), market_green),
+                Span::styled(trend, trend_style),
+            ]),
+            Line::styled(format!("60s average: {} cycles", fmt_cycles(avg_60)), market_avg_style),
+            // Line::styled(
+            //     format!(
+            //         "{} / {} / {}",
+            //         fmt_cycles(avg_10),
+            //         fmt_cycles(avg_30),
+            //         fmt_cycles(avg_60)
+            //     ),
+            //     market_avg_style,
+            // ),
+        ];
+        let market = Paragraph::new(market_lines)
+            .style(Style::default().fg(GREEN))
+            .block(green_border().title("MARKET"));
+        frame.render_widget(market, market_area);
+    }
 
     let terminal_inner_w = areas.terminal.width.saturating_sub(2).max(1);
     let terminal_visible_lines = areas.terminal.height.saturating_sub(2) as usize;
@@ -352,5 +394,17 @@ fn output_style(style: OutputStyle) -> Style {
         OutputStyle::Info => Style::default().fg(Color::Cyan),
         OutputStyle::System => Style::default().fg(GREEN).add_modifier(Modifier::DIM),
         OutputStyle::Literal => Style::default().fg(GREEN).add_modifier(Modifier::DIM),
+    }
+}
+
+fn terminal_overclock_pct_style(percent: f64) -> Style {
+    if percent > 100.0 {
+        Style::default().fg(GREEN).add_modifier(Modifier::BOLD)
+    } else if percent >= 30.0 {
+        output_style(OutputStyle::Normal)
+    } else if percent >= 10.0 {
+        Style::default().fg(Color::Yellow)
+    } else {
+        output_style(OutputStyle::Error)
     }
 }

@@ -2,6 +2,7 @@ use std::io;
 
 use super::log::push_log;
 use super::state::GameState;
+use super::upgrades::refresh_unlock_threshold_tracking;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
@@ -39,6 +40,7 @@ fn format_uptime_hms(seconds: f64) -> String {
 const RESTORE_LOG_PREFIX: &str = "session restored (prior session uptime ";
 
 pub fn append_restore_log_line(state: &mut GameState) {
+    refresh_unlock_threshold_tracking(state);
     state
         .log
         .retain(|entry| !entry.text.starts_with(RESTORE_LOG_PREFIX));

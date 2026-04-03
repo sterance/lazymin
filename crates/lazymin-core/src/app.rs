@@ -196,12 +196,15 @@ impl App {
             return;
         }
 
-        let areas = layout::compute(Rect {
+        let areas = layout::compute(
+            Rect {
             x: 0,
             y: 0,
             width,
             height,
-        });
+            },
+            self.game.market_unlocked,
+        );
         let target = if contains(areas.terminal, column, row) {
             Some(&mut self.terminal_scroll_back)
         } else if contains(areas.log, column, row) {

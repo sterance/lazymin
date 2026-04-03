@@ -6,7 +6,12 @@ use super::hints::HintTracker;
 use super::log::{push_log, LogEntry};
 use super::producers::ProducerKind;
 use super::resources::{ResourceKind, ResourcePool};
+use super::tick::OVERCLOCK_MAX_COOLANT;
 use super::upgrades::{TimedEffect, UpgradeKind};
+
+fn default_coolant() -> f64 {
+    OVERCLOCK_MAX_COOLANT
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct GameState {
@@ -23,6 +28,16 @@ pub struct GameState {
     // so this needs to remain true even if producers are later killed.
     #[serde(default)]
     pub ever_owned_producers: HashSet<ProducerKind>,
+    #[serde(default)]
+    pub producer_peak_counts: HashMap<ProducerKind, u32>,
+    #[serde(default)]
+    pub max_total_producers_peak: u32,
+    #[serde(default)]
+    pub disk_usage_ratio_peak: f64,
+    #[serde(default)]
+    pub watts_utilization_peak: f64,
+    #[serde(default)]
+    pub ever_had_disk_log_usage: bool,
     pub capacity_purchases: HashMap<ResourceKind, u32>,
     pub hardware_cost_basis: HashMap<ResourceKind, u32>,
     pub announced_unlocks: HashMap<ProducerKind, bool>,
@@ -45,6 +60,16 @@ pub struct GameState {
     pub chaos_monkey_boost_factor: f64,
     #[serde(default)]
     pub hit_resource_gate: bool,
+    #[serde(default)]
+    pub market_unlocked: bool,
+    #[serde(default = "default_coolant")]
+    pub coolant: f64,
+    #[serde(default)]
+    pub coolant_price: f64,
+    #[serde(default)]
+    pub market_price_history: VecDeque<f64>,
+    #[serde(default)]
+    pub market_tick_accumulator_secs: f64,
     pub rng_state: u64,
 }
 
@@ -59,6 +84,11 @@ impl GameState {
             sound_muted: false,
             producers: HashMap::new(),
             ever_owned_producers: HashSet::new(),
+            producer_peak_counts: HashMap::new(),
+            max_total_producers_peak: 0,
+            disk_usage_ratio_peak: 0.0,
+            watts_utilization_peak: 0.0,
+            ever_had_disk_log_usage: false,
             capacity_purchases: HashMap::new(),
             hardware_cost_basis: HashMap::new(),
             announced_unlocks: HashMap::new(),
@@ -78,6 +108,11 @@ impl GameState {
             chaos_monkey_boost_until: None,
             chaos_monkey_boost_factor: 1.0,
             hit_resource_gate: false,
+            market_unlocked: false,
+            coolant: OVERCLOCK_MAX_COOLANT,
+            coolant_price: 0.0,
+            market_price_history: VecDeque::new(),
+            market_tick_accumulator_secs: 0.0,
             rng_state: 0x9e37_79b9_7f4a_7c15,
         };
         push_log(&mut state.log, 0.0, "system initialized");

@@ -15,11 +15,12 @@ fn content_area_with_left_padding(area: Rect) -> Rect {
 pub struct AppAreas {
     pub header: Rect,
     pub resources: Rect,
+    pub market: Option<Rect>,
     pub terminal: Rect,
     pub log: Rect,
 }
 
-pub fn compute(area: Rect) -> AppAreas {
+pub fn compute(area: Rect, market_unlocked: bool) -> AppAreas {
     let area = content_area_with_left_padding(area);
     let vertical = Layout::default()
         .direction(Direction::Vertical)
@@ -36,9 +37,20 @@ pub fn compute(area: Rect) -> AppAreas {
         .constraints([Constraint::Length(30), Constraint::Min(1)])
         .split(vertical[2]);
 
+    let (resources, market) = if market_unlocked {
+        let left = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(8), Constraint::Length(6)])
+            .split(top[0]);
+        (left[0], Some(left[1]))
+    } else {
+        (top[0], None)
+    };
+
     AppAreas {
         header: vertical[0],
-        resources: top[0],
+        resources,
+        market,
         terminal: top[1],
         log: vertical[3],
     }
