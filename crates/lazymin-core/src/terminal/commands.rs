@@ -14,10 +14,12 @@ use crate::game::resources::{
     KERNEL_DISK_MB, KERNEL_RAM_MB, KERNEL_WATTS,
 };
 use crate::game::save;
-use crate::game::tick::{disk_log_growth_rate, grant_cycle_burst, remote_cycle_rate};
+use crate::game::tick::{
+    coolant_unit_price, disk_log_growth_rate, grant_cycle_burst, remote_cycle_rate,
+};
 use crate::game::upgrades::{
     apply_upgrade_purchase, burst_upgrade_cost, effective_disk_cap, is_burst_upgrade,
-    upgrade_by_command, upgrade_unlocked, UpgradeKind,
+    refresh_unlock_threshold_tracking, upgrade_by_command, upgrade_unlocked, UpgradeKind,
 };
 
 use command_defs::registry_command;
@@ -84,6 +86,7 @@ const UPGRADES_ORDER: &[&str] = &[
     "rngd --feed-random",
     "gpg --gen-key",
     "ssh remote harvest",
+    "ssh market",
     "ssh-keygen -t ed25519",
     "certbot renew",
     "haveged --run",
@@ -156,8 +159,9 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
         return vec![
             TerminalLine::Output {
                 text: format!(
-                    "insufficient memory (need {:.0} MB, have {:.0} MB free)",
-                    def.ram_mb, free_ram
+                    "insufficient memory (need {}, have {} free)",
+                    fmt_bytes(def.ram_mb),
+                    fmt_bytes(free_ram)
                 ),
                 style: OutputStyle::Error,
             },
@@ -174,8 +178,9 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
             return vec![
                 TerminalLine::Output {
                     text: format!(
-                        "insufficient disk space (need {:.0} MB, have {:.0} MB free)",
-                        def.disk_mb, free
+                        "insufficient disk space (need {}, have {} free)",
+                        fmt_bytes(def.disk_mb),
+                        fmt_bytes(free)
                     ),
                     style: OutputStyle::Error,
                 },
@@ -214,21 +219,21 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
     }
     app.game.resources.deduct(price);
 
-    let owned = app
-        .game
-        .producers
-        .entry(kind)
-        .and_modify(|count| *count += 1)
-        .or_insert(1);
+    let owned_count = {
+        let e = app.game.producers.entry(kind).or_insert(0);
+        *e += 1;
+        *e
+    };
 
     if owned_before == 0 {
         app.game.ever_owned_producers.insert(kind);
     }
+    refresh_unlock_threshold_tracking(&mut app.game);
 
     vec![
         TerminalLine::Output {
             text: format!(
-                "[{owned}] {}  -- +{:.0} cycles/s",
+                "[{owned_count}] {}  -- +{:.0} cycles/s",
                 def.command, def.base_cycles_per_s
             ),
             style: OutputStyle::System,
@@ -238,7 +243,7 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
 }
 
 fn cap_upgrade_cost(base_cost: f64, purchases: u32) -> f64 {
-    base_cost * 1.15_f64.powi(purchases as i32)
+    base_cost * 1.05_f64.powi(purchases as i32)
 }
 
 fn capacity_cost_basis_count(app: &App, kind: ResourceKind) -> u32 {
@@ -436,6 +441,27 @@ define_capacity_command!(cmd_buy_disk, apt_disk_cost, ResourceKind::Disk);
 define_capacity_command!(cmd_buy_bw, apt_bw_cost, ResourceKind::Bandwidth);
 define_capacity_command!(cmd_buy_watts, apt_watts_cost, ResourceKind::Watts);
 
+pub(super) fn market_buy_cost(app: &App) -> f64 {
+    coolant_unit_price(&app.game)
+}
+
+pub(super) fn cmd_market_buy(_: &str, app: &mut App) -> Vec<TerminalLine> {
+    let price = coolant_unit_price(&app.game);
+    app.game.resources.deduct(price);
+    app.game.coolant += 1.0;
+    vec![
+        TerminalLine::Output {
+            text: format!(
+                "coolant +1 (now {:.0}) -- -{} cycles",
+                app.game.coolant,
+                fmt_cycles(price)
+            ),
+            style: OutputStyle::System,
+        },
+        TerminalLine::Blank,
+    ]
+}
+
 fn apt_install_resource(name: &str) -> Option<ResourceKind> {
     match name {
         "apt install ram" => Some(ResourceKind::Ram),
@@ -465,9 +491,15 @@ fn cmd_apt_install(_: &str, app: &mut App) -> Vec<TerminalLine> {
             continue;
         }
         let next = capacity_command_cost_for(app, kind);
+        let owned = app
+            .game
+            .capacity_purchases
+            .get(&kind)
+            .copied()
+            .unwrap_or(0);
         out.push(TerminalLine::Output {
             text: format!(
-                "{} - {} (next: {} cycles)",
+                "[{owned}] {} - {} (next: {} cycles)",
                 name,
                 command_player_description(cmd),
                 fmt_cycles(next)
@@ -568,6 +600,8 @@ fn cmd_ps_aux(_: &str, app: &mut App) -> Vec<TerminalLine> {
 }
 
 fn cmd_pkill(input: &str, app: &mut App) -> Vec<TerminalLine> {
+    let pmsg = |body: &str| format!("pkill: {body}");
+
     let mut parts = input.split_whitespace();
     let _ = parts.next();
 
@@ -576,7 +610,7 @@ fn cmd_pkill(input: &str, app: &mut App) -> Vec<TerminalLine> {
         None => {
             return vec![
                 TerminalLine::Output {
-                    text: "specify process to kill, e.g. `pkill [PID]`".to_owned(),
+                    text: pmsg("specify process to kill, e.g. `pkill [PID]`"),
                     style: OutputStyle::Error,
                 },
                 TerminalLine::Blank,
@@ -587,9 +621,35 @@ fn cmd_pkill(input: &str, app: &mut App) -> Vec<TerminalLine> {
     let pid: u32 = match pid_tok.parse() {
         Ok(pid) => pid,
         Err(_) => {
+            let stripped: String = pid_tok
+                .chars()
+                .filter(|c| *c != '[' && *c != ']')
+                .collect();
+            if pid_tok.contains('[') || pid_tok.contains(']') {
+                if let Ok(s_pid) = stripped.parse::<u32>() {
+                    if s_pid == 1 {
+                        return vec![
+                            TerminalLine::Output {
+                                text: pmsg("cannot kill kernel"),
+                                style: OutputStyle::Error,
+                            },
+                            TerminalLine::Blank,
+                        ];
+                    }
+                    if s_pid >= 1000 {
+                        return vec![
+                            TerminalLine::Output {
+                                text: pmsg(&format!("did you mean `pkill {s_pid}`?")),
+                                style: OutputStyle::Error,
+                            },
+                            TerminalLine::Blank,
+                        ];
+                    }
+                }
+            }
             return vec![
                 TerminalLine::Output {
-                    text: "invalid PID".to_owned(),
+                    text: pmsg("invalid PID"),
                     style: OutputStyle::Error,
                 },
                 TerminalLine::Blank,
@@ -600,7 +660,7 @@ fn cmd_pkill(input: &str, app: &mut App) -> Vec<TerminalLine> {
     if pid == 1 {
         return vec![
             TerminalLine::Output {
-                text: "cannot kill kernel".to_owned(),
+                text: pmsg("cannot kill kernel"),
                 style: OutputStyle::Error,
             },
             TerminalLine::Blank,
@@ -610,7 +670,7 @@ fn cmd_pkill(input: &str, app: &mut App) -> Vec<TerminalLine> {
     if pid < 1000 {
         return vec![
             TerminalLine::Output {
-                text: "invalid PID".to_owned(),
+                text: pmsg("invalid PID"),
                 style: OutputStyle::Error,
             },
             TerminalLine::Blank,
@@ -631,7 +691,7 @@ fn cmd_pkill(input: &str, app: &mut App) -> Vec<TerminalLine> {
     let Some(kind) = target_kind else {
         return vec![
             TerminalLine::Output {
-                text: "invalid PID".to_owned(),
+                text: pmsg("invalid PID"),
                 style: OutputStyle::Error,
             },
             TerminalLine::Blank,
@@ -642,7 +702,7 @@ fn cmd_pkill(input: &str, app: &mut App) -> Vec<TerminalLine> {
     if count == 0 {
         return vec![
             TerminalLine::Output {
-                text: "invalid PID".to_owned(),
+                text: pmsg("invalid PID"),
                 style: OutputStyle::Error,
             },
             TerminalLine::Blank,
@@ -658,7 +718,7 @@ fn cmd_pkill(input: &str, app: &mut App) -> Vec<TerminalLine> {
 
     vec![
         TerminalLine::Output {
-            text: format!("[{pid}] killed, {} ram freed", fmt_bytes(ram_mb)),
+            text: pmsg(&format!("[{pid}] killed, {} ram freed", fmt_bytes(ram_mb))),
             style: OutputStyle::System,
         },
         TerminalLine::Blank,

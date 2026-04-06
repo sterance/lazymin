@@ -5,22 +5,120 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>lazymin</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css"/>
+  <link data-trunk rel="copy-dir" href="vendor/simple-keyboard"/>
+  <link rel="stylesheet" href="simple-keyboard/index.css"/>
   <link data-trunk rel="rust" href="Cargo.toml" data-wasm-opt="z"/>
   <style>
-    html, body { margin: 0; padding: 0; overflow: hidden; background: #000000; height: 100%; width: 100%; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #000000;
+      height: 100%;
+      width: 100%;
+      min-height: 100dvh;
+    }
+    #app-shell {
+      height: 100%;
+      width: 100%;
+      min-height: 100dvh;
+      box-sizing: border-box;
+    }
     #terminal { height: 100%; width: 100%; }
     .xterm { height: 100% !important; }
     .xterm-viewport::-webkit-scrollbar { display: none; }
     .xterm-viewport { scrollbar-width: none; }
+    #osk-host { display: none; flex-shrink: 0; overflow-y: auto; }
+    body.web-mobile-portrait #app-shell {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 100dvh;
+      max-height: 100dvh;
+      overflow: hidden;
+    }
+    body.web-mobile-portrait #terminal {
+      flex: 1 1 0;
+      min-height: 0;
+      height: auto;
+      overflow: hidden;
+      position: relative;
+      z-index: 1;
+    }
+    body.web-mobile-portrait #osk-host {
+      display: flex;
+      flex-direction: column;
+      flex: 0 0 auto;
+      width: 100%;
+      position: relative;
+      z-index: 6;
+      background: #000000;
+      border-top: 1px solid #1a3d2a;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      min-height: 200px;
+      min-height: max(11rem, 200px);
+      max-height: 48vh;
+      max-height: 48dvh;
+      box-sizing: border-box;
+    }
+    body.web-mobile-portrait #osk-host .hg-theme-default {
+      background-color: #000000;
+      padding: 4px;
+      border-radius: 0;
+      width: 100%;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+    body.web-mobile-portrait #osk-host .hg-button {
+      background: #0d1117;
+      color: #3fb950;
+      border: 1px solid #1a3d2a;
+      box-shadow: none;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      min-height: 44px;
+      font-size: 15px;
+    }
+    body.web-mobile-portrait #osk-host .hg-button.hg-activeButton {
+      background: #163d26;
+      color: #5cff8f;
+    }
   </style>
 </head>
 <body>
-  <div id="terminal"></div>
+  <div id="app-shell">
+    <div id="terminal"></div>
+    <div id="osk-host" class="lazymin-osk-root"></div>
+  </div>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script src="simple-keyboard/index.js"></script>
   <script type="module">
+    function mobilePortraitCoarseTouch() {
+      const portrait = window.matchMedia('(orientation: portrait)');
+      const coarse = window.matchMedia('(pointer: coarse)');
+      const noHover = window.matchMedia('(hover: none)');
+      return portrait.matches && coarse.matches && noHover.matches;
+    }
+
+    function onMediaQueryChange(mq, handler) {
+      if (typeof mq.addEventListener === 'function') {
+        mq.addEventListener('change', handler);
+      } else if (typeof mq.addListener === 'function') {
+        mq.addListener(handler);
+      }
+    }
+
     function startApp() {
-      const { run_game, on_terminal_data, on_wheel } = window.wasmBindings;
+      const bindings = window.wasmBindings;
+      const {
+        run_game,
+        on_terminal_data,
+        on_wheel,
+      } = bindings;
+      const setWebMobilePortraitCompact =
+        typeof bindings.set_web_mobile_portrait_compact === 'function'
+          ? bindings.set_web_mobile_portrait_compact
+          : () => {};
       const Terminal = window.Terminal;
       const FitAddon = window.FitAddon.FitAddon;
       const container = document.getElementById('terminal');
@@ -38,17 +136,305 @@
       term.loadAddon(fitAddon);
       term.open(container);
       term.attachCustomWheelEventHandler(() => false);
+
+      let osk = null;
+      let webOskMode = false;
+      let xtermFocusGuardAttached = false;
+
+      function syncXtermTextareaForWebOsk(compact) {
+        try {
+          const ta = term.textarea;
+          if (!ta) {
+            return;
+          }
+          if (compact) {
+            ta.setAttribute('readonly', 'readonly');
+            ta.setAttribute('inputmode', 'none');
+            ta.setAttribute('autocomplete', 'off');
+            ta.setAttribute('autocapitalize', 'off');
+            ta.setAttribute('autocorrect', 'off');
+            ta.spellcheck = false;
+            ta.style.caretColor = 'transparent';
+            ta.style.pointerEvents = 'none';
+            ta.tabIndex = -1;
+            ta.blur();
+          } else {
+            ta.removeAttribute('readonly');
+            ta.removeAttribute('inputmode');
+            ta.removeAttribute('autocomplete');
+            ta.removeAttribute('autocapitalize');
+            ta.removeAttribute('autocorrect');
+            ta.spellcheck = false;
+            ta.style.caretColor = '';
+            ta.style.pointerEvents = '';
+            ta.tabIndex = 0;
+          }
+        } catch (e) {
+          console.error('syncXtermTextareaForWebOsk failed', e);
+        }
+      }
+
+      function attachWebOskFocusGuardOnce() {
+        if (xtermFocusGuardAttached) {
+          return;
+        }
+        const ta = term.textarea;
+        if (!ta) {
+          return;
+        }
+        ta.addEventListener(
+          'focus',
+          () => {
+            if (!webOskMode) {
+              return;
+            }
+            requestAnimationFrame(() => {
+              const cur = term.textarea;
+              if (cur) {
+                cur.blur();
+              }
+            });
+          },
+          true,
+        );
+        xtermFocusGuardAttached = true;
+      }
+
+      function oskSend(s) {
+        on_terminal_data(s);
+      }
+
+      function oskVibrate() {
+        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+          navigator.vibrate(10);
+        }
+      }
+
+      function oskOnKeyPress(button) {
+        if (typeof button !== 'string') {
+          return;
+        }
+        oskVibrate();
+        if (button === '{enter}') {
+          oskSend('\r');
+          return;
+        }
+        if (button === '{bksp}' || button === '{backspace}') {
+          oskSend('\x7f');
+          return;
+        }
+        if (button === '{space}') {
+          oskSend(' ');
+          return;
+        }
+        if (button === '{arrowup}') {
+          oskSend('\x1b[A');
+          return;
+        }
+        if (button === '{arrowdown}') {
+          oskSend('\x1b[B');
+          return;
+        }
+        if (button === '{layer}') {
+          const kb = osk;
+          if (!kb || typeof kb.setOptions !== 'function') {
+            return;
+          }
+          const cur = kb.options.layoutName || 'default';
+          const next = cur === 'shift' ? 'default' : 'shift';
+          kb.setOptions({ layoutName: next });
+          requestAnimationFrame(() => {
+            if (typeof kb.recalculateLayout === 'function') {
+              kb.recalculateLayout();
+            }
+          });
+          return;
+        }
+        if (button.startsWith('{')) {
+          return;
+        }
+        oskSend(button);
+      }
+
+      function simpleKeyboardCtor() {
+        const sk = window.SimpleKeyboard;
+        if (!sk) {
+          return null;
+        }
+        if (typeof sk === 'function') {
+          return sk;
+        }
+        if (sk.default && typeof sk.default === 'function') {
+          return sk.default;
+        }
+        return null;
+      }
+
+      function createOsk() {
+        const Kbd = simpleKeyboardCtor();
+        const host = document.getElementById('osk-host');
+        if (!Kbd || !host) {
+          return null;
+        }
+        try {
+          host.innerHTML = '';
+          // library treats string arg as a single class name (querySelector ".<name>"), not "#id"
+          const kb = new Kbd('lazymin-osk-root', {
+            layoutName: 'default',
+            theme: 'hg-theme-default',
+            disableButtonHold: true,
+            layout: {
+              default: [
+                '1 2 3 4 5 6 7 8 9 0 {bksp}',
+                'q w e r t y u i o p',
+                'a s d f g h j k l {enter}',
+                '{layer} z x c v b n m . {arrowup} {arrowdown}',
+                '{space}',
+              ],
+              shift: [
+                '! @ # $ % ^ & * - _ {bksp}',
+                'Q W E R T Y U I O P',
+                'A S D F G H J K L {enter}',
+                '{layer} Z X C V B N M , {arrowup} {arrowdown}',
+                '{space}',
+              ],
+            },
+            display: {
+              '{bksp}': 'Bksp',
+              '{enter}': 'Ent',
+              '{layer}': 'Shift',
+              '{space}': 'space',
+              '{arrowup}': '\u2191',
+              '{arrowdown}': '\u2193',
+            },
+            onKeyPress: oskOnKeyPress,
+            preventMouseDownDefault: true,
+          });
+          requestAnimationFrame(() => {
+            if (typeof kb.recalculateLayout === 'function') {
+              kb.recalculateLayout();
+            }
+          });
+          return kb;
+        } catch (e) {
+          console.error('simple-keyboard init failed', e);
+          return null;
+        }
+      }
+
+      function destroyOsk() {
+        if (osk) {
+          osk.destroy();
+          osk = null;
+        }
+        const host = document.getElementById('osk-host');
+        if (host) {
+          host.innerHTML = '';
+        }
+      }
+
+      function syncWebMobilePortrait() {
+        try {
+          attachWebOskFocusGuardOnce();
+          const compact = mobilePortraitCoarseTouch();
+          webOskMode = compact;
+          document.body.classList.toggle('web-mobile-portrait', compact);
+          setWebMobilePortraitCompact(compact);
+          syncXtermTextareaForWebOsk(compact);
+          if (compact) {
+            if (!osk) {
+              osk = createOsk();
+            }
+          } else {
+            destroyOsk();
+          }
+          fitAddon.fit();
+          if (compact && osk && typeof osk.recalculateLayout === 'function') {
+            requestAnimationFrame(() => {
+              osk.recalculateLayout();
+            });
+          }
+          if (!compact) {
+            term.focus();
+          }
+        } catch (e) {
+          console.error('syncWebMobilePortrait failed', e);
+        }
+      }
+
       fitAddon.fit();
-      term.focus();
-      window.addEventListener('resize', () => fitAddon.fit());
+
+      function oskPointerToCell(clientX, clientY) {
+        const rect = container.getBoundingClientRect();
+        const col = Math.floor((clientX - rect.left) / (rect.width / term.cols));
+        const row = Math.floor((clientY - rect.top) / (rect.height / term.rows));
+        return { col, row };
+      }
+
       container.addEventListener('wheel', (e) => {
         e.preventDefault();
-        const rect = container.getBoundingClientRect();
-        const col = Math.floor((e.clientX - rect.left) / (rect.width / term.cols));
-        const row = Math.floor((e.clientY - rect.top) / (rect.height / term.rows));
+        const { col, row } = oskPointerToCell(e.clientX, e.clientY);
         const dir = e.deltaY > 0 ? 1 : e.deltaY < 0 ? -1 : 0;
         if (dir !== 0) on_wheel(dir, col, row);
       }, { passive: false });
+
+      const touchScrollStepPx = 18;
+      const touchScrollLockPx = 8;
+      let touchScrollState = null;
+
+      container.addEventListener(
+        'touchstart',
+        (e) => {
+          if (!mobilePortraitCoarseTouch() || e.touches.length !== 1) {
+            return;
+          }
+          const t = e.touches[0];
+          touchScrollState = {
+            startY: t.clientY,
+            lastY: t.clientY,
+            acc: 0,
+            locked: false,
+          };
+        },
+        { passive: true },
+      );
+
+      container.addEventListener(
+        'touchmove',
+        (e) => {
+          if (!mobilePortraitCoarseTouch() || !touchScrollState || e.touches.length !== 1) {
+            return;
+          }
+          const t = e.touches[0];
+          const st = touchScrollState;
+          if (!st.locked) {
+            if (Math.abs(t.clientY - st.startY) < touchScrollLockPx) {
+              return;
+            }
+            st.locked = true;
+          }
+          e.preventDefault();
+          const dy = st.lastY - t.clientY;
+          st.lastY = t.clientY;
+          st.acc += dy;
+          const { col, row } = oskPointerToCell(t.clientX, t.clientY);
+          while (st.acc >= touchScrollStepPx) {
+            st.acc -= touchScrollStepPx;
+            on_wheel(1, col, row);
+          }
+          while (st.acc <= -touchScrollStepPx) {
+            st.acc += touchScrollStepPx;
+            on_wheel(-1, col, row);
+          }
+        },
+        { passive: false },
+      );
+
+      function touchScrollEnd() {
+        touchScrollState = null;
+      }
+      container.addEventListener('touchend', touchScrollEnd, { passive: true });
+      container.addEventListener('touchcancel', touchScrollEnd, { passive: true });
 
       const write = (bytes) => {
         term.write(new Uint8Array(bytes));
@@ -57,6 +443,23 @@
       const getSize = () => ({ columns: term.cols, rows: term.rows });
       run_game(write, getSize);
       term.onData((data) => on_terminal_data(data));
+
+      const mqs = [
+        window.matchMedia('(orientation: portrait)'),
+        window.matchMedia('(pointer: coarse)'),
+        window.matchMedia('(hover: none)'),
+      ];
+      for (const mq of mqs) {
+        onMediaQueryChange(mq, syncWebMobilePortrait);
+      }
+      window.addEventListener('resize', syncWebMobilePortrait);
+      window.addEventListener('orientationchange', () => {
+        setTimeout(syncWebMobilePortrait, 150);
+      });
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(syncWebMobilePortrait);
+      });
     }
 
     function waitForReady() {

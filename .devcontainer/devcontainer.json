@@ -1,0 +1,21 @@
+{
+  "name": "lazymin",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  },
+  "postCreateCommand": "rustup target add wasm32-unknown-unknown && cargo fetch",
+  "remoteEnv": {
+    "NO_COLOR": ""
+  }
+}
