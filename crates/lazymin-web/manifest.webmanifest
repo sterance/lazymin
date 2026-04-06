@@ -1,0 +1,24 @@
+{
+  "name": "Lazymin",
+  "short_name": "Lazymin",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#111111",
+  "theme_color": "#111111",
+  "description": "Terminal-based incremental game powered by ratatui",
+  "icons": [
+    {
+      "src": "/icons/icon-192-dark.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512-dark.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

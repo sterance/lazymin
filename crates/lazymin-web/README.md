@@ -54,3 +54,11 @@ trunk serve --release
 ```
 
 Open the URL Trunk prints (usually `http://127.0.0.1:8080`).
+
+## PWA (installability)
+
+The build includes [`manifest.webmanifest`](manifest.webmanifest), [`sw.js`](sw.js), and [`icons/`](icons/). Trunk emits **hashed** JS/WASM filenames; the service worker **does not** precache HTML or those bundles. It precaches the static manifest, the SVG favicons, the four PNGs (`icon-*-dark.png` / `icon-*-light.png`), and `sw.js`, and uses the network for navigations and `text/html` responses so each load gets a fresh `index.html` and matching hashes. Other same-origin GETs (including hashed chunks) go to the network.
+
+**Favicons** use [`icon-dark-mode.svg`](icons/icon-dark-mode.svg) and [`icon-light-mode.svg`](icons/icon-light-mode.svg) with `media="(prefers-color-scheme: …)"`, plus [`favicon.ico`](favicon.ico) (16/32/48 embedded, dark artwork) for legacy browsers and default `/favicon.ico` requests. **Install manifest** icons are chosen in the same way: the page injects a small manifest blob so `icons` point at the dark or light PNG pair for 192 and 512. Regenerate those PNGs from the SVGs after editing them: [`scripts/render-pwa-icons.sh`](../../scripts/render-pwa-icons.sh) (requires ImageMagick `magick`). [`scripts/build-web.sh`](../../scripts/build-web.sh) runs that script when `magick` is available.
+
+To confirm: Chrome DevTools **Application** (Manifest, Service Workers) and Lighthouse **PWA**. Production needs HTTPS (e.g. Cloudflare Pages).

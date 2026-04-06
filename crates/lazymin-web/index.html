@@ -4,6 +4,68 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>lazymin</title>
+  <link rel="manifest" href="/manifest.webmanifest" id="lazymin-manifest-link"/>
+  <meta name="theme-color" content="#111111" media="(prefers-color-scheme: dark)"/>
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)"/>
+  <link rel="icon" href="/icons/icon-dark-mode.svg" type="image/svg+xml" media="(prefers-color-scheme: dark)"/>
+  <link rel="icon" href="/icons/icon-light-mode.svg" type="image/svg+xml" media="(prefers-color-scheme: light)"/>
+  <link rel="icon" href="/favicon.ico" sizes="48x48" type="image/x-icon"/>
+  <link rel="icon" href="/icons/icon-dark-mode.svg" type="image/svg+xml"/>
+  <script>
+  (function () {
+    function manifestPayload(dark) {
+      return {
+        name: "Lazymin",
+        short_name: "Lazymin",
+        start_url: "/",
+        scope: "/",
+        display: "standalone",
+        background_color: dark ? "#111111" : "#ffffff",
+        theme_color: dark ? "#111111" : "#ffffff",
+        description: "Terminal-based incremental game powered by ratatui",
+        icons: [
+          {
+            src: dark ? "/icons/icon-192-dark.png" : "/icons/icon-192-light.png",
+            sizes: "192x192",
+            type: "image/png",
+            purpose: "any maskable",
+          },
+          {
+            src: dark ? "/icons/icon-512-dark.png" : "/icons/icon-512-light.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "any maskable",
+          },
+        ],
+      };
+    }
+    var link = document.getElementById("lazymin-manifest-link");
+    if (!link || typeof URL === "undefined" || !URL.createObjectURL) {
+      return;
+    }
+    var prevBlob = null;
+    function apply() {
+      var dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      var blob = new Blob([JSON.stringify(manifestPayload(dark))], {
+        type: "application/manifest+json",
+      });
+      var url = URL.createObjectURL(blob);
+      if (prevBlob) {
+        URL.revokeObjectURL(prevBlob);
+      }
+      prevBlob = url;
+      link.href = url;
+    }
+    apply();
+    window
+      .matchMedia("(prefers-color-scheme: dark)")
+      .addEventListener("change", apply);
+  })();
+  </script>
+  <link data-trunk rel="copy-file" href="manifest.webmanifest"/>
+  <link data-trunk rel="copy-file" href="sw.js"/>
+  <link data-trunk rel="copy-file" href="favicon.ico"/>
+  <link data-trunk rel="copy-dir" href="icons"/>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css"/>
   <link data-trunk rel="copy-dir" href="vendor/simple-keyboard"/>
   <link rel="stylesheet" href="simple-keyboard/index.css"/>
@@ -470,6 +532,13 @@
       requestAnimationFrame(waitForReady);
     }
     waitForReady();
+  </script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch(console.error);
+      });
+    }
   </script>
 </body>
 </html>
