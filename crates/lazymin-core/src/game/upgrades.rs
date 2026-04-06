@@ -286,6 +286,7 @@ const ALL: &[UpgradeDef] = &[
     UpgradeDef {
         kind: UpgradeKind::SshRemoteHarvest,
         command: "ssh remote harvest",
+
         cycles_cost: 25_000.0,
         entropy_cost: 5.0,
         description: "use spare bandwidth for bonus cycles/s",
