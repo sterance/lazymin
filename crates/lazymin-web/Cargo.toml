@@ -27,6 +27,5 @@ features = ["console", "AudioBuffer", "AudioContext", "AudioBufferSourceNode", "
 [lib]
 path = "src/lib.rs"
 name = "lazymin_web"
-edition = "2021"
 required-features = []
 crate-type = ["cdylib"]

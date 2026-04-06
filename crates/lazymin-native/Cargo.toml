@@ -30,5 +30,4 @@ dev-presets = ["lazymin-core/dev-presets"]
 [[bin]]
 path = "src/main.rs"
 name = "lazymin-native"
-edition = "2021"
 required-features = []

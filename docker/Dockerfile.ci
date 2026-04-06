@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 # ci image: cargo-chef warms wasm deps for lazymin-web; trunk from release tarball (pin TRUNK_VERSION).
-FROM rust:1-bookworm AS chef
-RUN cargo install cargo-chef --locked \
-    && rustup target add wasm32-unknown-unknown
+# lukemathwalker/cargo-chef:latest-rust-1-bookworm tracks rust:1-bookworm; avoids compiling cargo-chef each build.
+FROM lukemathwalker/cargo-chef:latest-rust-1-bookworm AS chef
+RUN rustup target add wasm32-unknown-unknown
 
 FROM chef AS planner
 WORKDIR /app

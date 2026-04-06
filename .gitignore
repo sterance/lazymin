@@ -2,6 +2,9 @@
 /target/
 /dist/
 
+# node (wrangler devDependency for ci)
+/node_modules/
+
 # local editor
 /.cursor/
 .vscode/

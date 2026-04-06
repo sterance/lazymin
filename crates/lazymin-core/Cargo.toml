@@ -34,6 +34,5 @@ dev-presets = []
 [lib]
 path = "src/lib.rs"
 name = "lazymin_core"
-edition = "2021"
 required-features = []
 crate-type = ["lib"]
