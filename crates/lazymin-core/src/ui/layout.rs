@@ -20,27 +20,56 @@ pub struct AppAreas {
     pub log: Rect,
 }
 
-pub fn compute(area: Rect, market_unlocked: bool) -> AppAreas {
+pub fn left_rail_columns(compact_left_rail: bool) -> u16 {
+    if compact_left_rail {
+        18
+    } else {
+        30
+    }
+}
+
+pub fn compute(area: Rect, market_unlocked: bool, compact_left_rail: bool) -> AppAreas {
     let area = content_area_with_left_padding(area);
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(1),
-            Constraint::Length(8),
-        ])
-        .split(area);
+    let left_w = left_rail_columns(compact_left_rail);
+    let vertical = if compact_left_rail {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Min(1),
+                Constraint::Length(8),
+            ])
+            .split(area)
+    } else {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Min(1),
+                Constraint::Length(8),
+            ])
+            .split(area)
+    };
+
+    let (header_idx, main_idx, log_idx) = if compact_left_rail {
+        (1, 3, 4)
+    } else {
+        (0, 2, 3)
+    };
 
     let top = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(30), Constraint::Min(1)])
-        .split(vertical[2]);
+        .constraints([Constraint::Length(left_w), Constraint::Min(1)])
+        .split(vertical[main_idx]);
 
     let (resources, market) = if market_unlocked {
+        let resources_min = if compact_left_rail { 23 } else { 8 };
         let left = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(8), Constraint::Length(6)])
+            .constraints([Constraint::Min(resources_min), Constraint::Length(6)])
             .split(top[0]);
         (left[0], Some(left[1]))
     } else {
@@ -48,10 +77,24 @@ pub fn compute(area: Rect, market_unlocked: bool) -> AppAreas {
     };
 
     AppAreas {
-        header: vertical[0],
+        header: vertical[header_idx],
         resources,
         market,
         terminal: top[1],
-        log: vertical[3],
+        log: vertical[log_idx],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn left_rail_width_matches_compact_flag() {
+        let area = Rect::new(0, 0, 80, 40);
+        let wide = compute(area, false, false);
+        let compact = compute(area, false, true);
+        assert_eq!(wide.resources.width, 30);
+        assert_eq!(compact.resources.width, 18);
     }
 }

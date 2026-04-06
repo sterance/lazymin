@@ -11,8 +11,13 @@ pub fn parse_xterm_data(s: &str) -> Vec<InputEvent> {
                     match chars.next() {
                         Some('A') => out.push(InputEvent::Up),
                         Some('B') => out.push(InputEvent::Down),
-                        Some('C') | Some('D') => {}
-                        Some('3') => if chars.next() == Some('~') {},
+                        Some('C') => out.push(InputEvent::Right),
+                        Some('D') => out.push(InputEvent::Left),
+                        Some('3') => {
+                            if chars.next() == Some('~') {
+                                out.push(InputEvent::Delete);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -24,6 +29,7 @@ pub fn parse_xterm_data(s: &str) -> Vec<InputEvent> {
             '\r' | '\n' => out.push(InputEvent::Enter),
             '\u{7f}' | '\u{8}' => out.push(InputEvent::Backspace),
             '\u{3}' => out.push(InputEvent::CtrlC),
+            '\u{1}' => out.push(InputEvent::CtrlA),
             c if !c.is_control() => out.push(InputEvent::Char(c)),
             _ => {}
         }

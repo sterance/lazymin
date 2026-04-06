@@ -8,6 +8,7 @@ use crate::game::tick;
 use crate::input::InputEvent;
 use crate::terminal::highlight::{classify_input, InputHighlight};
 use crate::ui::layout;
+use crate::web_shell_flags::web_mobile_portrait_compact;
 use ratatui::layout::Rect;
 
 const MAX_TERMINAL_LINES: usize = 1_000_000;
@@ -106,6 +107,10 @@ impl App {
                 self.terminal.pop_char();
                 self.terminal_scroll_back = 0;
             }
+            InputEvent::Delete => {
+                self.terminal.delete_forward();
+                self.terminal_scroll_back = 0;
+            }
             InputEvent::Enter => {
                 self.terminal_scroll_back = 0;
                 let input = self.terminal.take_input();
@@ -173,6 +178,10 @@ impl App {
                 self.terminal.lines.extend(run_result.lines);
                 self.terminal.trim_lines();
             }
+            InputEvent::CtrlA => {
+                self.terminal.cursor_home();
+                self.terminal_scroll_back = 0;
+            }
             InputEvent::CtrlC => {
                 self.terminal.cancel_input();
                 self.terminal_scroll_back = 0;
@@ -183,6 +192,14 @@ impl App {
             }
             InputEvent::Down => {
                 self.terminal.history_next();
+                self.terminal_scroll_back = 0;
+            }
+            InputEvent::Left => {
+                self.terminal.cursor_left();
+                self.terminal_scroll_back = 0;
+            }
+            InputEvent::Right => {
+                self.terminal.cursor_right();
                 self.terminal_scroll_back = 0;
             }
             InputEvent::ScrollUp { column, row } => self.scroll_panel(*column, *row, true),
@@ -204,6 +221,7 @@ impl App {
             height,
             },
             self.game.market_unlocked,
+            web_mobile_portrait_compact(),
         );
         let target = if contains(areas.terminal, column, row) {
             Some(&mut self.terminal_scroll_back)
@@ -234,6 +252,7 @@ const CURSOR_BLINK_INTERVAL: f64 = 1.0;
 
 pub struct TerminalState {
     pub input: String,
+    pub cursor: usize,
     pub lines: VecDeque<TerminalLine>,
     pub history: VecDeque<String>,
     pub history_idx: Option<usize>,
@@ -246,6 +265,7 @@ impl TerminalState {
     pub fn new() -> Self {
         Self {
             input: String::new(),
+            cursor: 0,
             lines: VecDeque::new(),
             history: VecDeque::new(),
             history_idx: None,
@@ -269,21 +289,77 @@ impl TerminalState {
     }
 
     pub fn push_char(&mut self, c: char) {
-        self.input.push(c);
+        self.input.insert(self.cursor, c);
+        self.cursor += c.len_utf8();
         self.reset_cursor_blink();
     }
 
     pub fn pop_char(&mut self) {
-        self.input.pop();
+        if self.cursor == 0 {
+            return;
+        }
+        let start = self.prev_char_start(self.cursor);
+        self.input.replace_range(start..self.cursor, "");
+        self.cursor = start;
         self.reset_cursor_blink();
     }
 
+    pub fn delete_forward(&mut self) {
+        if self.cursor >= self.input.len() {
+            return;
+        }
+        let Some(ch) = self.input[self.cursor..].chars().next() else {
+            return;
+        };
+        let end = self.cursor + ch.len_utf8();
+        self.input.replace_range(self.cursor..end, "");
+        self.reset_cursor_blink();
+    }
+
+    pub fn cursor_left(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        self.cursor = self.prev_char_start(self.cursor);
+        self.reset_cursor_blink();
+    }
+
+    pub fn cursor_right(&mut self) {
+        if self.cursor >= self.input.len() {
+            return;
+        }
+        let Some(ch) = self.input[self.cursor..].chars().next() else {
+            return;
+        };
+        self.cursor += ch.len_utf8();
+        self.reset_cursor_blink();
+    }
+
+    pub fn cursor_home(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        self.cursor = 0;
+        self.reset_cursor_blink();
+    }
+
+    fn prev_char_start(&self, end_byte: usize) -> usize {
+        self.input[..end_byte]
+            .char_indices()
+            .rev()
+            .next()
+            .map(|(i, _)| i)
+            .unwrap_or(0)
+    }
+
     pub fn take_input(&mut self) -> String {
+        self.cursor = 0;
         std::mem::take(&mut self.input)
     }
 
     pub fn cancel_input(&mut self) {
         self.input.clear();
+        self.cursor = 0;
         self.history_idx = None;
         self.saved_input = None;
     }
@@ -310,6 +386,11 @@ impl TerminalState {
         if cmd.trim().is_empty() {
             return;
         }
+        // todo: may want to drop only consecutive exact duplicates (current) vs remove every
+        // older exact match from history when pushing (keep newest only)
+        if self.history.back().is_some_and(|last| last == &cmd) {
+            return;
+        }
         self.history.push_back(cmd);
         while self.history.len() > MAX_HISTORY_ENTRIES {
             self.history.pop_front();
@@ -323,6 +404,7 @@ impl TerminalState {
 
         if self.history_idx.is_none() {
             self.saved_input = Some(std::mem::take(&mut self.input));
+            self.cursor = 0;
             self.history_idx = Some(self.history.len() - 1);
         } else if let Some(idx) = self.history_idx {
             if idx > 0 {
@@ -332,6 +414,8 @@ impl TerminalState {
 
         if let Some(idx) = self.history_idx {
             self.input = self.history.get(idx).cloned().unwrap_or_else(String::new);
+            self.cursor = self.input.len();
+            self.reset_cursor_blink();
         }
     }
 
@@ -344,6 +428,8 @@ impl TerminalState {
         if idx >= last_idx {
             self.history_idx = None;
             self.input = self.saved_input.take().unwrap_or_default();
+            self.cursor = self.input.len();
+            self.reset_cursor_blink();
             return;
         }
 
@@ -354,6 +440,8 @@ impl TerminalState {
                 .get(next_idx)
                 .cloned()
                 .unwrap_or_else(String::new);
+            self.cursor = self.input.len();
+            self.reset_cursor_blink();
         }
     }
 }

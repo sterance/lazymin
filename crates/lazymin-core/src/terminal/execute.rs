@@ -601,7 +601,10 @@ mod tests {
             })
             .next()
             .unwrap();
-        assert_eq!(text, "specify process to kill, e.g. `pkill [PID]`");
+        assert_eq!(
+            text,
+            "pkill: specify process to kill, e.g. `pkill [PID]`"
+        );
     }
 
     #[test]
@@ -617,7 +620,23 @@ mod tests {
             })
             .next()
             .unwrap();
-        assert_eq!(text, "invalid PID");
+        assert_eq!(text, "pkill: invalid PID");
+    }
+
+    #[test]
+    fn pkill_bracket_wrapped_pid_suggests_plain_form() {
+        let mut app = App::new();
+        let out = run("pkill [1000]", &mut app);
+        let text = out
+            .lines
+            .iter()
+            .filter_map(|l| match l {
+                TerminalLine::Output { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .next()
+            .unwrap();
+        assert_eq!(text, "pkill: did you mean `pkill 1000`?");
     }
 
     #[test]
@@ -633,7 +652,7 @@ mod tests {
             })
             .next()
             .unwrap();
-        assert_eq!(text, "cannot kill kernel");
+        assert_eq!(text, "pkill: cannot kill kernel");
     }
 
     #[test]
@@ -656,7 +675,7 @@ mod tests {
         assert_eq!(
             text,
             format!(
-                "[1001] killed, {} ram freed",
+                "pkill: [1001] killed, {} ram freed",
                 fmt_bytes(freed_ram_mb)
             )
         );
@@ -686,7 +705,7 @@ mod tests {
             })
             .next()
             .unwrap();
-        assert_eq!(text, "invalid PID");
+        assert_eq!(text, "pkill: invalid PID");
 
         assert_eq!(
             app.game.producers.get(&ProducerKind::ShellScript).copied(),
@@ -713,7 +732,7 @@ mod tests {
         assert_eq!(
             text,
             format!(
-                "[1000] killed, {} ram freed",
+                "pkill: [1000] killed, {} ram freed",
                 fmt_bytes(freed_ram_mb)
             )
         );
@@ -782,6 +801,25 @@ mod tests {
         );
 
         assert_eq!(app.game.next_hardware_discount, Some(0.7));
+    }
+
+    #[test]
+    fn apt_capacity_hardware_cost_scales_by_5_percent_per_prior_purchase() {
+        let mut app = App::new();
+        app.game.resources.set(ResourceKind::Cycles, 10_000.0);
+        app.game.resources.set_cap(ResourceKind::Watts, 1_000.0);
+
+        run("sudo apt install ram", &mut app);
+        assert!(
+            (app.game.resources.get(ResourceKind::Cycles) - 9_950.0).abs() < 1e-6,
+            "first ram is base 50 cycles"
+        );
+
+        run("sudo apt install ram", &mut app);
+        assert!(
+            (app.game.resources.get(ResourceKind::Cycles) - 9_897.5).abs() < 1e-6,
+            "second ram costs 50 * 1.05^1 (=52.5)"
+        );
     }
 
     #[test]

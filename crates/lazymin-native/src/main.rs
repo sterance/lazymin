@@ -261,11 +261,19 @@ fn map_key(key: KeyEvent) -> Option<InputEvent> {
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(InputEvent::CtrlC)
         }
+        KeyCode::Char('a') | KeyCode::Char('A')
+            if key.modifiers.contains(KeyModifiers::CONTROL) =>
+        {
+            Some(InputEvent::CtrlA)
+        }
         KeyCode::Char(c) => Some(InputEvent::Char(c)),
         KeyCode::Backspace => Some(InputEvent::Backspace),
+        KeyCode::Delete => Some(InputEvent::Delete),
         KeyCode::Enter => Some(InputEvent::Enter),
         KeyCode::Up => Some(InputEvent::Up),
         KeyCode::Down => Some(InputEvent::Down),
+        KeyCode::Left => Some(InputEvent::Left),
+        KeyCode::Right => Some(InputEvent::Right),
         _ => None,
     }
 }

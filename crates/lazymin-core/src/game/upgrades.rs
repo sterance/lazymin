@@ -718,11 +718,6 @@ pub fn apply_upgrade_purchase(state: &mut GameState, kind: UpgradeKind, entropy_
         UpgradeEffect::CycleBurst { .. } => {}
         UpgradeEffect::RemoteHarvestChannel => {
             state.remote_channel_active = true;
-            push_log(
-                &mut state.log,
-                state.uptime_secs,
-                "remote harvest channel active (spare bandwidth -> cycles)",
-            );
         }
         UpgradeEffect::MarketUnlock => {
             state.market_unlocked = true;
