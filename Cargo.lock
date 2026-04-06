@@ -812,7 +812,7 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "lazymin-core"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "once_cell",
  "ratatui",
@@ -824,7 +824,7 @@ dependencies = [
 
 [[package]]
 name = "lazymin-native"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "crossterm 0.28.1",
  "lazymin-core",
@@ -836,7 +836,7 @@ dependencies = [
 
 [[package]]
 name = "lazymin-web"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anes",
  "getrandom 0.2.17",

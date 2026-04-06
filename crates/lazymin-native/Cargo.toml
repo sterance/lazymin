@@ -1,16 +1,34 @@
 [package]
 name = "lazymin-native"
-version = "0.1.0"
 edition = "2021"
+version = "0.0.1"
+
+[dependencies]
+crossterm = "0.28"
+symphonia-adapter-libopus = "0.2.7"
+
+[dependencies.lazymin-core]
+path = "../lazymin-core"
+
+[dependencies.ratatui]
+version = "0.30"
+features = ["crossterm"]
+
+[dependencies.rodio]
+version = "0.22.2"
+features = ["playback"]
+
+[dependencies.symphonia]
+version = "0.5.5"
+features = ["ogg"]
+default-features = false
 
 [features]
 default = []
 dev-presets = ["lazymin-core/dev-presets"]
 
-[dependencies]
-lazymin-core = { path = "../lazymin-core" }
-ratatui = { version = "0.30", features = ["crossterm"] }
-crossterm = "0.28"
-rodio = { version = "0.22.2", features = ["playback"] }
-symphonia = { version = "0.5.5", default-features = false, features = ["ogg"] }
-symphonia-adapter-libopus = "0.2.7"
+[[bin]]
+path = "src/main.rs"
+name = "lazymin-native"
+edition = "2021"
+required-features = []

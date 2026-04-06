@@ -1,0 +1,53 @@
+# Deploys the Trunk web build to Cloudflare Pages via Direct Upload.
+#
+# Build runs inside Docker: cargo-chef warms wasm32 deps for lazymin-web; Trunk is a
+# pinned release binary (not cargo install). BuildKit GHA cache speeds repeat runs.
+# Bump Trunk: pass build-arg TRUNK_VERSION or edit docker/Dockerfile.ci ARG.
+#
+# Required GitHub Actions secrets:
+#   CLOUDFLARE_API_TOKEN      — Account > Cloudflare Pages > Edit
+#   CLOUDFLARE_ACCOUNT_ID
+#   CLOUDFLARE_PROJECT_NAME
+#
+# https://developers.cloudflare.com/pages/how-to/use-direct-upload-with-continuous-integration/
+
+name: Deploy Pages
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  deployments: write
+  actions: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Remove stale dist
+        run: rm -rf dist
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.ci
+          target: export
+          outputs: type=local,dest=./dist
+          cache-from: type=gha,scope=lazymin-web-deploy
+          cache-to: type=gha,mode=max,scope=lazymin-web-deploy
+
+      - name: Publish to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: ${{ secrets.CLOUDFLARE_PROJECT_NAME }}
+          directory: dist
+          wranglerVersion: "3"
