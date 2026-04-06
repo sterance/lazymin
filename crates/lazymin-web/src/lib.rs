@@ -356,6 +356,11 @@ pub fn on_wheel(direction: i32, column: u16, row: u16) {
 }
 
 #[wasm_bindgen]
+pub fn set_web_mobile_portrait_compact(compact: bool) {
+    lazymin_core::web_shell_flags::set_web_mobile_portrait_compact(compact);
+}
+
+#[wasm_bindgen]
 pub fn run_game(write: &js_sys::Function, get_size: &js_sys::Function) -> Result<(), JsValue> {
     let app = match save::load() {
         Ok(Some(mut state)) => {

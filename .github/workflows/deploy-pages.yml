@@ -1,0 +1,51 @@
+# Deploys the Trunk web build (repo root dist/) to Cloudflare Pages.
+#
+# Required GitHub Actions secrets (repository Settings > Secrets and variables > Actions):
+#   CLOUDFLARE_API_TOKEN      — custom token with Account > Cloudflare Pages > Edit
+#   CLOUDFLARE_ACCOUNT_ID     — Cloudflare dashboard account id
+#   CLOUDFLARE_PROJECT_NAME   — Pages project name (must exist in the account)
+#
+# Create the API token: My Profile > API Tokens > Create Token > custom token with
+# Account > Cloudflare Pages > Edit. See also:
+# https://developers.cloudflare.com/pages/how-to/use-direct-upload-with-continuous-integration/
+
+name: Deploy Pages
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Trunk
+        run: cargo install trunk --locked
+
+      - name: Build web
+        run: |
+          unset NO_COLOR 2>/dev/null || true
+          cd crates/lazymin-web
+          trunk build --release
+
+      - name: Publish to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: ${{ secrets.CLOUDFLARE_PROJECT_NAME }}
+          directory: dist
+          wranglerVersion: "3"

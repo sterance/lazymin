@@ -9,6 +9,7 @@ use ratatui::widgets::{
 use ratatui::Frame;
 
 use crate::app::{App, OutputStyle, TerminalLine};
+use crate::web_shell_flags::web_mobile_portrait_compact;
 use crate::format::{
     canonicalize_zero, fmt_bandwidth, fmt_bytes, fmt_cycles, fmt_cycles_rate, fmt_watts,
 };
@@ -29,11 +30,15 @@ fn green_border() -> Block<'static> {
 }
 
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
-    let areas = layout::compute(frame.area(), app.game.market_unlocked);
+    let compact_left_rail = web_mobile_portrait_compact();
+    let areas = layout::compute(frame.area(), app.game.market_unlocked, compact_left_rail);
 
     let header_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(30), Constraint::Fill(1)])
+        .constraints([
+            Constraint::Length(layout::left_rail_columns(compact_left_rail)),
+            Constraint::Fill(1),
+        ])
         .split(areas.header);
 
     let title = Paragraph::new(Text::styled(
@@ -76,34 +81,84 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
             .copied()
             .unwrap_or(0.0),
     );
-    let resources_lines = vec![
-        Line::raw(format!(
-            "cycles   {}  (+{}/s)",
-            fmt_cycles(cycles),
-            fmt_cycles_rate(cycles_per_second)
-        )),
-        Line::raw(format!(
-            "mem      {} / {}",
-            fmt_bytes(ram_used),
-            fmt_bytes(ram_cap)
-        )),
-        Line::raw(format!(
-            "disk     {} / {}",
-            fmt_bytes(disk_used),
-            fmt_bytes(disk_cap),
-        )),
-        Line::raw(format!(
-            "bw       {} / {}",
-            fmt_bandwidth(bw_used),
-            fmt_bandwidth(bw_cap),
-        )),
-        Line::raw(format!(
-            "power    {} / {}",
-            fmt_watts(watts_used),
-            fmt_watts(watts_cap)
-        )),
-        Line::raw(format!("entropy  {:.2}  (+{entropy_rate:.2}/s)", entropy)),
-    ];
+    let res_line_style = Style::default().fg(GREEN);
+    let res_cycles_highlight = Style::default().fg(GREEN).add_modifier(Modifier::BOLD);
+    let resources_lines: Vec<Line<'static>> = if compact_left_rail {
+        vec![
+            Line::raw(""),
+            Line::raw("cycles"),
+            Line::from(vec![
+                Span::styled(fmt_cycles(cycles), res_cycles_highlight),
+                Span::styled(
+                    format!(" (+{}/s)", fmt_cycles_rate(cycles_per_second)),
+                    res_line_style,
+                ),
+            ]),
+            Line::raw(""),
+            Line::raw("mem"),
+            Line::raw(format!(
+                "{}/{}",
+                fmt_bytes(ram_used),
+                fmt_bytes(ram_cap)
+            )),
+            Line::raw(""),
+            Line::raw("disk"),
+            Line::raw(format!(
+                "{}/{}",
+                fmt_bytes(disk_used),
+                fmt_bytes(disk_cap),
+            )),
+            Line::raw(""),
+            Line::raw("bw"),
+            Line::raw(format!(
+                "{}/{}",
+                fmt_bandwidth(bw_used),
+                fmt_bandwidth(bw_cap),
+            )),
+            Line::raw(""),
+            Line::raw("power"),
+            Line::raw(format!(
+                "{}/{}",
+                fmt_watts(watts_used),
+                fmt_watts(watts_cap)
+            )),
+            Line::raw(""),
+            Line::raw("entropy"),
+            Line::raw(format!("{:.2} (+{entropy_rate:.2}/s)", entropy)),
+        ]
+    } else {
+        vec![
+            Line::from(vec![
+                Span::styled("cycles   ", res_line_style),
+                Span::styled(fmt_cycles(cycles), res_cycles_highlight),
+                Span::styled(
+                    format!("  (+{}/s)", fmt_cycles_rate(cycles_per_second)),
+                    res_line_style,
+                ),
+            ]),
+            Line::raw(format!(
+                "mem      {} / {}",
+                fmt_bytes(ram_used),
+                fmt_bytes(ram_cap)
+            )),
+            Line::raw(format!(
+                "disk     {} / {}",
+                fmt_bytes(disk_used),
+                fmt_bytes(disk_cap),
+            )),
+            Line::raw(format!(
+                "bw       {} / {}",
+                fmt_bandwidth(bw_used),
+                fmt_bandwidth(bw_cap),
+            )),
+            Line::raw(format!(
+                "power    {} / {}",
+                fmt_watts(watts_used),
+                fmt_watts(watts_cap)
+            )),
+            Line::raw(format!("entropy  {:.2}  (+{entropy_rate:.2}/s)", entropy)),
+        ]
+    };
     let resources = Paragraph::new(resources_lines)
         .style(Style::default().fg(GREEN))
         .block(green_border().title("RESOURCES"));
@@ -229,10 +284,14 @@ fn terminal_text(app: &App) -> Text<'_> {
     let cursor_char = if app.terminal.cursor_visible { "_" } else { " " };
     let cursor_style = Style::default().fg(GREEN).add_modifier(Modifier::DIM);
 
+    let cursor = app.terminal.cursor.min(prompt_input.len());
+    let (before, after) = prompt_input.split_at(cursor);
+
     lines.push(Line::from(vec![
         Span::styled("$ ", Style::default().fg(GREEN)),
-        Span::styled(prompt_input, input_style),
+        Span::styled(before.to_string(), input_style),
         Span::styled(cursor_char, cursor_style),
+        Span::styled(after.to_string(), input_style),
     ]));
 
     Text::from(lines)
