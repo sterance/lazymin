@@ -26,7 +26,6 @@ RUN cargo chef cook --release --target wasm32-unknown-unknown --package lazymin-
 RUN curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
     | tar xz -C /usr/local/bin
 COPY . .
-ENV NO_COLOR=
 RUN cd crates/lazymin-web && trunk build --release
 
 FROM scratch AS export

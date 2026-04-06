@@ -14,8 +14,5 @@
       ]
     }
   },
-  "postCreateCommand": "rustup target add wasm32-unknown-unknown && cargo fetch",
-  "remoteEnv": {
-    "NO_COLOR": ""
-  }
+  "postCreateCommand": "rustup target add wasm32-unknown-unknown && cargo fetch"
 }
