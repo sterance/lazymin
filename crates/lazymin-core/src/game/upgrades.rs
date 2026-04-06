@@ -23,7 +23,6 @@ pub enum UpgradeKind {
     OpensslRandBase64,
     Uuidgen,
     GpgGenKey,
-    SshKeygenEd25519,
     SshRemoteHarvest,
     SshMarket,
     MktempD,
@@ -285,14 +284,6 @@ const ALL: &[UpgradeDef] = &[
         effect: UpgradeEffect::GlobalMultiplier { factor: 1.1 },
     },
     UpgradeDef {
-        kind: UpgradeKind::SshKeygenEd25519,
-        command: "ssh-keygen -t ed25519",
-        cycles_cost: 0.0,
-        entropy_cost: 10.0,
-        description: "+20% remote harvest via bandwidth",
-        effect: UpgradeEffect::BandwidthRemoteMultiplier { factor: 1.2 },
-    },
-    UpgradeDef {
         kind: UpgradeKind::SshRemoteHarvest,
         command: "ssh remote harvest",
         cycles_cost: 0.0,
@@ -335,7 +326,7 @@ const ALL: &[UpgradeDef] = &[
         command: "certbot renew",
         cycles_cost: 100_000.0,
         entropy_cost: 12.0,
-        description: "+20% remote harvest (stacking)",
+        description: "+20% remote harvest via bandwidth",
         effect: UpgradeEffect::BandwidthRemoteMultiplier { factor: 1.2 },
     },
     UpgradeDef {
@@ -575,13 +566,6 @@ pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
             state
                 .ever_owned_producers
                 .contains(&ProducerKind::ServiceUnit)
-        }
-        UpgradeKind::SshKeygenEd25519 => {
-            *state
-                .capacity_purchases
-                .get(&ResourceKind::Bandwidth)
-                .unwrap_or(&0)
-                >= 1
         }
         UpgradeKind::SshRemoteHarvest => {
             *state

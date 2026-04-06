@@ -87,7 +87,6 @@ const UPGRADES_ORDER: &[&str] = &[
     "gpg --gen-key",
     "ssh remote harvest",
     "ssh market",
-    "ssh-keygen -t ed25519",
     "certbot renew",
     "haveged --run",
     "stress-ng --cpu 0",
