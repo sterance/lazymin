@@ -24,8 +24,8 @@ fn find_command<'a>(input: &'a str) -> Option<&'a CommandDef> {
     let Some(first) = input.split_whitespace().next() else {
         return None;
     };
-    if first == "pkill" {
-        return command_registry().iter().find(|cmd| cmd.name == "pkill");
+    if matches!(first, "pkill" | "hack" | "invest" | "buyout" | "research") {
+        return command_registry().iter().find(|cmd| cmd.name == first);
     }
 
     None
@@ -847,5 +847,187 @@ mod tests {
 
         assert_eq!(app.game.coolant, 10002.0);
         assert_eq!(app.game.resources.get(ResourceKind::Cycles), 5.0);
+    }
+
+    fn app_with_competitors() -> App {
+        use crate::game::competitors::{CompetitorPool, Company};
+        use std::collections::VecDeque;
+
+        let mut app = App::new();
+        let mut pool = CompetitorPool::default();
+        pool.companies.push(Company {
+            id: 'A',
+            name: "TestCo Alpha".to_owned(),
+            value: 500.0,
+            value_history: VecDeque::new(),
+            hack_cooldown_until: 0.0,
+            invest_cooldown_until: 0.0,
+        });
+        pool.companies.push(Company {
+            id: 'B',
+            name: "TestCo Beta".to_owned(),
+            value: 500.0,
+            value_history: VecDeque::new(),
+            hack_cooldown_until: 0.0,
+            invest_cooldown_until: 0.0,
+        });
+        app.game.competitors = Some(pool);
+        app
+    }
+
+    #[test]
+    fn invest_with_argument_resolves_to_command() {
+        let mut app = app_with_competitors();
+        let out = run("invest A", &mut app);
+        assert!(
+            !out.lines.iter().any(|l| matches!(
+                l,
+                TerminalLine::Output { text, .. } if text.contains("command not found")
+            )),
+            "invest A should not be 'command not found'"
+        );
+        assert!(
+            out.lines.iter().any(|l| matches!(
+                l,
+                TerminalLine::Output { text, .. } if text.contains("value increased")
+            )),
+            "invest A should increase company value"
+        );
+    }
+
+    #[test]
+    fn hack_with_argument_resolves_to_command() {
+        let mut app = app_with_competitors();
+        let out = run("hack B", &mut app);
+        assert!(
+            !out.lines.iter().any(|l| matches!(
+                l,
+                TerminalLine::Output { text, .. } if text.contains("command not found")
+            )),
+            "hack B should not be 'command not found'"
+        );
+        assert!(
+            out.lines.iter().any(|l| matches!(
+                l,
+                TerminalLine::Output { text, .. } if text.contains("value reduced")
+            )),
+            "hack B should reduce company value"
+        );
+    }
+
+    #[test]
+    fn buyout_with_argument_targets_correct_company() {
+        let mut app = app_with_competitors();
+        let pool = app.game.competitors.as_mut().unwrap();
+        pool.companies[0].value = 10.0;
+        app.game.resources.set(ResourceKind::Cycles, 1_000_000.0);
+
+        let out = run("buyout A", &mut app);
+        assert!(
+            !out.lines.iter().any(|l| matches!(
+                l,
+                TerminalLine::Output { text, .. } if text.contains("command not found")
+            )),
+            "buyout A should not be 'command not found'"
+        );
+        assert!(
+            out.lines.iter().any(|l| matches!(
+                l,
+                TerminalLine::Output { text, .. } if text.contains("acquired")
+            )),
+            "buyout A should acquire the company"
+        );
+    }
+
+    #[test]
+    fn invest_without_argument_reports_unknown_company() {
+        let mut app = app_with_competitors();
+        let out = run("invest", &mut app);
+        assert!(
+            out.lines.iter().any(|l| matches!(
+                l,
+                TerminalLine::Output { text, .. } if text.contains("unknown company")
+            )),
+            "bare invest should report unknown company"
+        );
+    }
+
+    fn app_with_research() -> App {
+        use crate::game::resources::HardwareTier;
+        let mut app = App::new();
+        app.game.hardware_tier = HardwareTier::Innovator;
+        app.game.resources.set(ResourceKind::Cycles, 1_000_000.0);
+        app.game.resources.set(ResourceKind::Entropy, 100.0);
+        app
+    }
+
+    #[test]
+    fn research_with_project_name_starts_project() {
+        let mut app = app_with_research();
+        let out = run("research adaptive compression", &mut app);
+        assert!(
+            out.lines.iter().any(|l| matches!(
+                l,
+                TerminalLine::Output { text, .. } if text.contains("started")
+            )),
+            "research with project name should start it: {:?}",
+            out.lines
+        );
+        assert!(app.game.research.active_project.is_some());
+    }
+
+    #[test]
+    fn research_with_prefix_match_starts_project() {
+        let mut app = app_with_research();
+        let out = run("research adaptive", &mut app);
+        assert!(
+            out.lines.iter().any(|l| matches!(
+                l,
+                TerminalLine::Output { text, .. } if text.contains("started")
+            )),
+            "research with prefix should start it: {:?}",
+            out.lines
+        );
+    }
+
+    #[test]
+    fn bare_research_lists_projects() {
+        let mut app = app_with_research();
+        let out = run("research", &mut app);
+        assert!(
+            out.lines.iter().any(|l| matches!(
+                l,
+                TerminalLine::Output { text, .. } if text.contains("available research")
+            )),
+            "bare research should list projects: {:?}",
+            out.lines
+        );
+    }
+
+    #[test]
+    fn research_unknown_name_reports_error() {
+        let mut app = app_with_research();
+        let out = run("research nonexistent thing", &mut app);
+        assert!(
+            out.lines.iter().any(|l| matches!(
+                l,
+                TerminalLine::Output { text, .. } if text.contains("unknown project")
+            )),
+            "research with bad name should report unknown: {:?}",
+            out.lines
+        );
+    }
+
+    #[test]
+    fn research_not_command_not_found() {
+        let mut app = app_with_research();
+        let out = run("research entropy recycling", &mut app);
+        assert!(
+            !out.lines.iter().any(|l| matches!(
+                l,
+                TerminalLine::Output { text, .. } if text.contains("command not found")
+            )),
+            "research with args should never be 'command not found'"
+        );
     }
 }

@@ -26,17 +26,19 @@ pub fn classify_input(input: &str, app: &App) -> InputHighlight {
     let (mods, _purchase_repeat, effective, _invalid_prefix, _invalid_suffix) =
         resolve_modifiers(normalized);
 
-    if effective.split_whitespace().next() == Some("pkill") {
-        if let Some(cmd) = command_registry().iter().find(|c| c.name == "pkill") {
-            if registry_command_blocked(&mods, cmd, app) {
-                return InputHighlight::LockedCommand;
-            }
-            if let Some(cost_fn) = cmd.cost {
-                if app.game.resources.get(ResourceKind::Cycles) < cost_fn(app) {
-                    return InputHighlight::Unaffordable;
+    if let Some(first) = effective.split_whitespace().next() {
+        if matches!(first, "pkill" | "hack" | "invest" | "buyout" | "research") {
+            if let Some(cmd) = command_registry().iter().find(|c| c.name == first) {
+                if registry_command_blocked(&mods, cmd, app) {
+                    return InputHighlight::LockedCommand;
                 }
+                if let Some(cost_fn) = cmd.cost {
+                    if app.game.resources.get(ResourceKind::Cycles) < cost_fn(app) {
+                        return InputHighlight::Unaffordable;
+                    }
+                }
+                return InputHighlight::Ready;
             }
-            return InputHighlight::Ready;
         }
     }
 
@@ -92,5 +94,54 @@ pub fn classify_input(input: &str, app: &App) -> InputHighlight {
         InputHighlight::PartialMatch
     } else {
         InputHighlight::Unknown
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::App;
+    use crate::game::competitors::{Company, CompetitorPool};
+    use std::collections::VecDeque;
+
+    fn app_with_competitors() -> App {
+        let mut app = App::new();
+        let mut pool = CompetitorPool::default();
+        pool.companies.push(Company {
+            id: 'A',
+            name: "TestCo Alpha".to_owned(),
+            value: 500.0,
+            value_history: VecDeque::new(),
+            hack_cooldown_until: 0.0,
+            invest_cooldown_until: 0.0,
+        });
+        pool.companies.push(Company {
+            id: 'B',
+            name: "TestCo Beta".to_owned(),
+            value: 500.0,
+            value_history: VecDeque::new(),
+            hack_cooldown_until: 0.0,
+            invest_cooldown_until: 0.0,
+        });
+        app.game.competitors = Some(pool);
+        app
+    }
+
+    #[test]
+    fn invest_with_argument_highlights_as_ready() {
+        let app = app_with_competitors();
+        assert_eq!(classify_input("invest A", &app), InputHighlight::Ready);
+    }
+
+    #[test]
+    fn hack_with_argument_highlights_as_ready() {
+        let app = app_with_competitors();
+        assert_eq!(classify_input("hack B", &app), InputHighlight::Ready);
+    }
+
+    #[test]
+    fn buyout_with_argument_highlights_as_ready() {
+        let app = app_with_competitors();
+        assert_eq!(classify_input("buyout A", &app), InputHighlight::Ready);
     }
 }

@@ -347,11 +347,6 @@ mod command_order_tests {
                 || cmd.name == "sudo rm -rf /*"
                 || cmd.name == "rm -rf /*"
                 || cmd.name == "pkill"
-                || cmd.name == "mb"
-                || cmd.name == "hack"
-                || cmd.name == "invest"
-                || cmd.name == "buyout"
-                || cmd.name == "research"
                 || cmd.name == "shutdown --graceful"
             {
                 continue;

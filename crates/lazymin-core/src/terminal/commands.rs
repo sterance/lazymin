@@ -38,6 +38,14 @@ const HELP_ORDER: &[&str] = &[
     "apt install",
     "apt update",
     "apt upgrade",
+    "",
+    "mb",
+    "",
+    "hack",
+    "invest",
+    "buyout",
+    "",
+    "research"
 ];
 
 const LS_ORDER: &[&str] = &[
@@ -1037,8 +1045,11 @@ fn cmd_sudo_rm(_: &str, app: &mut App) -> Vec<TerminalLine> {
     ]
 }
 
-pub(super) fn cmd_hack(arg: &str, app: &mut App) -> Vec<TerminalLine> {
-    let id = arg.trim().chars().next().unwrap_or(' ').to_ascii_uppercase();
+pub(super) fn cmd_hack(input: &str, app: &mut App) -> Vec<TerminalLine> {
+    let id = input.split_whitespace().nth(1)
+        .and_then(|s| s.chars().next())
+        .unwrap_or(' ')
+        .to_ascii_uppercase();
     match crate::game::competitors::hack_company(&mut app.game, id) {
         Ok(msg) => vec![
             TerminalLine::Output {
@@ -1057,8 +1068,11 @@ pub(super) fn cmd_hack(arg: &str, app: &mut App) -> Vec<TerminalLine> {
     }
 }
 
-pub(super) fn cmd_invest(arg: &str, app: &mut App) -> Vec<TerminalLine> {
-    let id = arg.trim().chars().next().unwrap_or(' ').to_ascii_uppercase();
+pub(super) fn cmd_invest(input: &str, app: &mut App) -> Vec<TerminalLine> {
+    let id = input.split_whitespace().nth(1)
+        .and_then(|s| s.chars().next())
+        .unwrap_or(' ')
+        .to_ascii_uppercase();
     match crate::game::competitors::invest_company(&mut app.game, id) {
         Ok(msg) => vec![
             TerminalLine::Output {
@@ -1077,8 +1091,11 @@ pub(super) fn cmd_invest(arg: &str, app: &mut App) -> Vec<TerminalLine> {
     }
 }
 
-pub(super) fn cmd_buyout(arg: &str, app: &mut App) -> Vec<TerminalLine> {
-    let id = arg.trim().chars().next().unwrap_or(' ').to_ascii_uppercase();
+pub(super) fn cmd_buyout(input: &str, app: &mut App) -> Vec<TerminalLine> {
+    let id = input.split_whitespace().nth(1)
+        .and_then(|s| s.chars().next())
+        .unwrap_or(' ')
+        .to_ascii_uppercase();
     match crate::game::competitors::buyout_company(&mut app.game, id) {
         Ok(msg) => vec![
             TerminalLine::Output {
@@ -1097,10 +1114,13 @@ pub(super) fn cmd_buyout(arg: &str, app: &mut App) -> Vec<TerminalLine> {
     }
 }
 
-pub(super) fn cmd_research(arg: &str, app: &mut App) -> Vec<TerminalLine> {
+pub(super) fn cmd_research(input: &str, app: &mut App) -> Vec<TerminalLine> {
     use crate::game::research::{all_projects, project_unlocked, start_project};
 
-    let trimmed = arg.trim();
+    let trimmed = input.trim()
+        .strip_prefix("research")
+        .unwrap_or("")
+        .trim();
     if trimmed.is_empty() {
         let mut out = vec![TerminalLine::Output {
             text: "available research projects:".to_owned(),
