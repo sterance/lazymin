@@ -2,10 +2,11 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::PathBuf;
 
-use super::GameState;
+use super::{GameState, PrestigeData};
 
 const SAVE_FILE: &str = "save.json";
 const SAVE_TMP: &str = "save.json.tmp";
+const PRESTIGE_FILE: &str = "prestige.json";
 
 pub fn save_dir() -> PathBuf {
     data_root()
@@ -60,4 +61,28 @@ pub(super) fn delete_impl() -> io::Result<()> {
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e),
     }
+}
+
+fn prestige_path() -> PathBuf {
+    save_dir().join(PRESTIGE_FILE)
+}
+
+pub(super) fn save_prestige_impl(data: &PrestigeData) -> io::Result<()> {
+    let dir = save_dir();
+    fs::create_dir_all(&dir)?;
+    let json =
+        serde_json::to_vec_pretty(data).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
+    fs::write(prestige_path(), json)?;
+    Ok(())
+}
+
+pub(super) fn load_prestige_impl() -> io::Result<PrestigeData> {
+    let path = prestige_path();
+    if !path.exists() {
+        return Ok(PrestigeData::default());
+    }
+    let bytes = fs::read(&path)?;
+    let data: PrestigeData =
+        serde_json::from_slice(&bytes).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
+    Ok(data)
 }

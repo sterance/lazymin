@@ -2,15 +2,25 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
+use super::competitors::CompetitorPool;
 use super::hints::HintTracker;
 use super::log::{push_log, LogEntry};
 use super::producers::ProducerKind;
-use super::resources::{ResourceKind, ResourcePool};
+use super::research::ResearchState;
+use super::resources::{HardwareTier, ResourceKind, ResourcePool};
 use super::tick::OVERCLOCK_MAX_COOLANT;
 use super::upgrades::{TimedEffect, UpgradeKind};
 
 fn default_coolant() -> f64 {
     OVERCLOCK_MAX_COOLANT
+}
+
+fn default_market_bull() -> bool {
+    true
+}
+
+fn default_prestige_multiplier() -> f64 {
+    1.0
 }
 
 #[derive(Serialize, Deserialize)]
@@ -40,6 +50,8 @@ pub struct GameState {
     pub ever_had_disk_log_usage: bool,
     pub capacity_purchases: HashMap<ResourceKind, u32>,
     pub hardware_cost_basis: HashMap<ResourceKind, u32>,
+    #[serde(default)]
+    pub hardware_tier: HardwareTier,
     pub announced_unlocks: HashMap<ProducerKind, bool>,
     pub log: VecDeque<LogEntry>,
     #[serde(default)]
@@ -70,6 +82,24 @@ pub struct GameState {
     pub market_price_history: VecDeque<f64>,
     #[serde(default)]
     pub market_tick_accumulator_secs: f64,
+    #[serde(default)]
+    pub market_demand_purchases: VecDeque<(f64, f64)>,
+    #[serde(default = "default_market_bull")]
+    pub market_bull: bool,
+    #[serde(default)]
+    pub market_cycle_remaining_secs: f64,
+    #[serde(default)]
+    pub competitors: Option<CompetitorPool>,
+    #[serde(default = "ResearchState::new")]
+    pub research: ResearchState,
+    #[serde(default)]
+    pub endgame_available: bool,
+    #[serde(default)]
+    pub game_complete: bool,
+    #[serde(default = "default_prestige_multiplier")]
+    pub prestige_multiplier: f64,
+    #[serde(default)]
+    pub solar_energy_cap: Option<f64>,
     pub rng_state: u64,
 }
 
@@ -91,6 +121,7 @@ impl GameState {
             ever_had_disk_log_usage: false,
             capacity_purchases: HashMap::new(),
             hardware_cost_basis: HashMap::new(),
+            hardware_tier: HardwareTier::Consumer,
             announced_unlocks: HashMap::new(),
             log: VecDeque::new(),
             hints: HintTracker::default(),
@@ -113,6 +144,15 @@ impl GameState {
             coolant_price: 0.0,
             market_price_history: VecDeque::new(),
             market_tick_accumulator_secs: 0.0,
+            market_demand_purchases: VecDeque::new(),
+            market_bull: true,
+            market_cycle_remaining_secs: 0.0,
+            competitors: None,
+            research: ResearchState::new(),
+            endgame_available: false,
+            game_complete: false,
+            prestige_multiplier: 1.0,
+            solar_energy_cap: None,
             rng_state: 0x9e37_79b9_7f4a_7c15,
         };
         push_log(&mut state.log, 0.0, "system initialized");

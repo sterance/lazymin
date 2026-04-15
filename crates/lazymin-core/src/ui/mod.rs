@@ -29,9 +29,23 @@ fn green_border() -> Block<'static> {
         .border_style(Style::default().fg(GREEN))
 }
 
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}..", &s[..max_len.saturating_sub(2)])
+    }
+}
+
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
     let compact_left_rail = web_mobile_portrait_compact();
-    let areas = layout::compute(frame.area(), app.game.market_unlocked, compact_left_rail);
+    let competitors_active = app.game.competitors.is_some();
+    let areas = layout::compute_full(
+        frame.area(),
+        app.game.market_unlocked,
+        competitors_active,
+        compact_left_rail,
+    );
 
     let header_chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -171,7 +185,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
         let avg_60 = canonicalize_zero(tick::market_price_average(&app.game, 60));
         let coolant = canonicalize_zero(app.game.coolant);
         let overclock = canonicalize_zero(tick::overclock_percent(&app.game));
-        let trend = if tick::market_trend_up(&app.game) { "▲" } else { "▼" };
+        let trend = if tick::market_is_bull(&app.game) { "▲" } else { "▼" };
         let market_avg_style = Style::default().fg(GREEN).add_modifier(Modifier::DIM);
         let market_green = Style::default().fg(GREEN);
         let trend_style = Style::default().fg(GREEN).add_modifier(Modifier::BOLD);
@@ -204,6 +218,34 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
             .style(Style::default().fg(GREEN))
             .block(green_border().title("MARKET"));
         frame.render_widget(market, market_area);
+    }
+
+    if let Some(comp_area) = areas.competitors {
+        if let Some(pool) = &app.game.competitors {
+            use crate::game::competitors::CompanyTrend;
+            let comp_green = Style::default().fg(GREEN);
+            let comp_dim = Style::default().fg(GREEN).add_modifier(Modifier::DIM);
+            let mut lines = Vec::new();
+            for c in &pool.companies {
+                let trend_ch = match c.trend() {
+                    CompanyTrend::Growing => "▲",
+                    CompanyTrend::Stable => "-",
+                    CompanyTrend::Declining => "▼",
+                };
+                lines.push(Line::from(vec![
+                    Span::styled(format!("[{}] ", c.id), comp_green),
+                    Span::styled(
+                        format!("{:<14}", truncate_str(&c.name, 14)),
+                        comp_dim,
+                    ),
+                    Span::styled(format!(" {:>6.0} {}", c.value, trend_ch), comp_green),
+                ]));
+            }
+            let comp = Paragraph::new(lines)
+                .style(Style::default().fg(GREEN))
+                .block(green_border().title("COMPETITORS"));
+            frame.render_widget(comp, comp_area);
+        }
     }
 
     let terminal_inner_w = areas.terminal.width.saturating_sub(2).max(1);

@@ -4,7 +4,7 @@ use super::log::push_log;
 use super::hints;
 use super::producers::{all_producers, ProducerKind};
 use super::resources::{
-    hardware_def, ResourceKind, STARTING_BANDWIDTH_MBPS, STARTING_DISK_MB, STARTING_RAM_MB,
+    hardware_def_for_tier, ResourceKind, STARTING_BANDWIDTH_MBPS, STARTING_DISK_MB, STARTING_RAM_MB,
     STARTING_WATTS,
 };
 use super::state::GameState;
@@ -142,54 +142,18 @@ fn apply_capacity_purchases(state: &mut GameState, ram: u32, disk: u32, bandwidt
         .set_cap(ResourceKind::Bandwidth, STARTING_BANDWIDTH_MBPS);
     state.resources.set_cap(ResourceKind::Watts, STARTING_WATTS);
 
-    for _ in 0..ram {
-        let hw = hardware_def(ResourceKind::Ram);
-        state.resources.add_cap(ResourceKind::Ram, hw.cap_delta);
-        *state
-            .capacity_purchases
-            .entry(ResourceKind::Ram)
-            .or_insert(0) += 1;
-        *state
-            .hardware_cost_basis
-            .entry(ResourceKind::Ram)
-            .or_insert(0) += 1;
-    }
-    for _ in 0..disk {
-        let hw = hardware_def(ResourceKind::Disk);
-        state.resources.add_cap(ResourceKind::Disk, hw.cap_delta);
-        *state
-            .capacity_purchases
-            .entry(ResourceKind::Disk)
-            .or_insert(0) += 1;
-        *state
-            .hardware_cost_basis
-            .entry(ResourceKind::Disk)
-            .or_insert(0) += 1;
-    }
-    for _ in 0..bandwidth {
-        let hw = hardware_def(ResourceKind::Bandwidth);
-        state
-            .resources
-            .add_cap(ResourceKind::Bandwidth, hw.cap_delta);
-        *state
-            .capacity_purchases
-            .entry(ResourceKind::Bandwidth)
-            .or_insert(0) += 1;
-        *state
-            .hardware_cost_basis
-            .entry(ResourceKind::Bandwidth)
-            .or_insert(0) += 1;
-    }
-    for _ in 0..psu {
-        let hw = hardware_def(ResourceKind::Watts);
-        state.resources.add_cap(ResourceKind::Watts, hw.cap_delta);
-        *state
-            .capacity_purchases
-            .entry(ResourceKind::Watts)
-            .or_insert(0) += 1;
-        *state
-            .hardware_cost_basis
-            .entry(ResourceKind::Watts)
-            .or_insert(0) += 1;
+    let tier = state.hardware_tier;
+    for (kind, n) in [
+        (ResourceKind::Ram, ram),
+        (ResourceKind::Disk, disk),
+        (ResourceKind::Bandwidth, bandwidth),
+        (ResourceKind::Watts, psu),
+    ] {
+        let hw = hardware_def_for_tier(tier, kind);
+        for _ in 0..n {
+            state.resources.add_cap(kind, hw.cap_delta);
+            *state.capacity_purchases.entry(kind).or_insert(0) += 1;
+            *state.hardware_cost_basis.entry(kind).or_insert(0) += 1;
+        }
     }
 }

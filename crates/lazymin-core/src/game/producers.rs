@@ -11,6 +11,9 @@ pub enum ProducerKind {
     KernelModule,
     Hypervisor,
     OsTakeover,
+    Cluster,
+    DistributedFabric,
+    NeuralSubstrate,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -27,7 +30,7 @@ pub struct ProducerDef {
     pub unlock_threshold: f64,
 }
 
-const PRODUCERS: [ProducerDef; 7] = [
+const PRODUCERS: [ProducerDef; 10] = [
     ProducerDef {
         kind: ProducerKind::ShellScript,
         name: "Shell Script",
@@ -112,6 +115,42 @@ const PRODUCERS: [ProducerDef; 7] = [
         bw_mbps: 100.0,
         unlock_threshold: 10_000_000.0,
     },
+    ProducerDef {
+        kind: ProducerKind::Cluster,
+        name: "Cluster",
+        command: "kubectl apply -f harvest.yaml",
+        base_cycles_per_s: 290_000.0,
+        base_cost: 200_000_000.0,
+        ram_mb: 32_768.0,
+        disk_mb: 524_288.0,
+        log_write_rate: 30.0,
+        bw_mbps: 500.0,
+        unlock_threshold: 100_000_000.0,
+    },
+    ProducerDef {
+        kind: ProducerKind::DistributedFabric,
+        name: "Distributed Fabric",
+        command: "terraform apply harvest",
+        base_cycles_per_s: 1_900_000.0,
+        base_cost: 2_000_000_000.0,
+        ram_mb: 131_072.0,
+        disk_mb: 2_097_152.0,
+        log_write_rate: 100.0,
+        bw_mbps: 2_000.0,
+        unlock_threshold: 1_000_000_000.0,
+    },
+    ProducerDef {
+        kind: ProducerKind::NeuralSubstrate,
+        name: "Neural Substrate",
+        command: "deploy --model harvest-net",
+        base_cycles_per_s: 12_000_000.0,
+        base_cost: 20_000_000_000.0,
+        ram_mb: 524_288.0,
+        disk_mb: 8_388_608.0,
+        log_write_rate: 300.0,
+        bw_mbps: 10_000.0,
+        unlock_threshold: 10_000_000_000.0,
+    },
 ];
 
 pub fn all_producers() -> &'static [ProducerDef] {
@@ -138,6 +177,9 @@ pub fn previous_tier(kind: ProducerKind) -> Option<ProducerKind> {
         ProducerKind::KernelModule => Some(ProducerKind::ServiceUnit),
         ProducerKind::Hypervisor => Some(ProducerKind::KernelModule),
         ProducerKind::OsTakeover => Some(ProducerKind::Hypervisor),
+        ProducerKind::Cluster => Some(ProducerKind::OsTakeover),
+        ProducerKind::DistributedFabric => Some(ProducerKind::Cluster),
+        ProducerKind::NeuralSubstrate => Some(ProducerKind::DistributedFabric),
     }
 }
 

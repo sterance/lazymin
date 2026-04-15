@@ -1,6 +1,6 @@
 use crate::app::App;
 use crate::game::producers::{producer_def, producer_unlocked, ProducerDef, ProducerKind};
-use crate::game::resources::{all_hardware, HardwareDef};
+use crate::game::resources::{all_hardware_kinds, hardware_def_for_tier, HardwareDef};
 use crate::game::state::GameState;
 use crate::game::upgrades::{all_upgrades, upgrade_unlocked};
 
@@ -39,9 +39,10 @@ fn any_producer_owned_using(game: &GameState, check: fn(&ProducerDef) -> bool) -
 }
 
 fn any_hardware_purchased(game: &GameState, check: fn(&HardwareDef) -> bool) -> bool {
-    all_hardware().iter().any(|def| {
-        let count = game.capacity_purchases.get(&def.kind).copied().unwrap_or(0);
-        count > 0 && check(def)
+    all_hardware_kinds().iter().any(|&kind| {
+        let def = hardware_def_for_tier(game.hardware_tier, kind);
+        let count = game.capacity_purchases.get(&kind).copied().unwrap_or(0);
+        count > 0 && check(&def)
     })
 }
 
@@ -65,6 +66,18 @@ pub(super) fn lock_market(app: &App) -> bool {
     !app.game.market_unlocked
 }
 
+pub(super) fn lock_competitors(app: &App) -> bool {
+    app.game.competitors.is_none()
+}
+
+pub(super) fn lock_research(app: &App) -> bool {
+    app.game.hardware_tier < crate::game::resources::HardwareTier::Innovator
+}
+
+pub(super) fn lock_endgame(app: &App) -> bool {
+    !app.game.endgame_available
+}
+
 pub(super) fn lock_cron_job(app: &App) -> bool {
     locked_producer(app, ProducerKind::CronJob)
 }
@@ -82,5 +95,14 @@ pub(super) fn lock_hypervisor(app: &App) -> bool {
 }
 pub(super) fn lock_os_takeover(app: &App) -> bool {
     locked_producer(app, ProducerKind::OsTakeover)
+}
+pub(super) fn lock_cluster(app: &App) -> bool {
+    locked_producer(app, ProducerKind::Cluster)
+}
+pub(super) fn lock_distributed_fabric(app: &App) -> bool {
+    locked_producer(app, ProducerKind::DistributedFabric)
+}
+pub(super) fn lock_neural_substrate(app: &App) -> bool {
+    locked_producer(app, ProducerKind::NeuralSubstrate)
 }
 

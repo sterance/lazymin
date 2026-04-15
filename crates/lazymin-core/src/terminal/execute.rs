@@ -804,7 +804,7 @@ mod tests {
     }
 
     #[test]
-    fn apt_capacity_hardware_cost_scales_by_5_percent_per_prior_purchase() {
+    fn apt_capacity_hardware_cost_scales_by_15_percent_per_prior_purchase() {
         let mut app = App::new();
         app.game.resources.set(ResourceKind::Cycles, 10_000.0);
         app.game.resources.set_cap(ResourceKind::Watts, 1_000.0);
@@ -815,10 +815,11 @@ mod tests {
             "first ram is base 50 cycles"
         );
 
+        // second ram costs 50 * 1.15^1 = 57.5
         run("sudo apt install ram", &mut app);
         assert!(
-            (app.game.resources.get(ResourceKind::Cycles) - 9_897.5).abs() < 1e-6,
-            "second ram costs 50 * 1.05^1 (=52.5)"
+            (app.game.resources.get(ResourceKind::Cycles) - 9_892.5).abs() < 1e-6,
+            "second ram costs 50 * 1.15^1 (=57.5), remaining should be 9892.5"
         );
     }
 
@@ -831,7 +832,7 @@ mod tests {
 
         run("mb *3", &mut app);
 
-        assert_eq!(app.game.coolant, 1003.0);
+        assert_eq!(app.game.coolant, 10003.0);
         assert_eq!(app.game.resources.get(ResourceKind::Cycles), 970.0);
     }
 
@@ -844,7 +845,7 @@ mod tests {
 
         run("mb -max", &mut app);
 
-        assert_eq!(app.game.coolant, 1002.0);
+        assert_eq!(app.game.coolant, 10002.0);
         assert_eq!(app.game.resources.get(ResourceKind::Cycles), 5.0);
     }
 }

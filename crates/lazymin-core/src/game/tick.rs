@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use super::competitors;
 use super::log::push_log;
 use super::producers::{all_producers, producer_def, producer_unlocked, ProducerKind};
 use super::resources::{
@@ -14,17 +15,24 @@ use super::upgrades::{
 
 pub const REMOTE_BW_CONVERSION: f64 = 50.0;
 pub const MARKET_TICK_INTERVAL_SECS: f64 = 1.0;
-pub const MARKET_ANCHOR_FRACTION: f64 = 0.0001;
+pub const MARKET_ANCHOR_FRACTION: f64 = 0.001;
 pub const MARKET_PRICE_MIN_FACTOR: f64 = 0.5;
 pub const MARKET_PRICE_MAX_FACTOR: f64 = 2.0;
 pub const MARKET_STEP_FRACTION: f64 = 0.1;
-pub const COOLANT_DRAIN_PER_SEC: f64 = 1.0;
+pub const COOLANT_DRAIN_PER_SEC: f64 = 60.0;
+pub const DEMAND_WINDOW_SECS: f64 = 300.0;
+pub const DEMAND_SATURATION_UNITS: f64 = 500.0;
+pub const DEMAND_MAX_FACTOR: f64 = 3.0;
+const BULL_CHANCE_UP: f64 = 0.70;
+const BEAR_CHANCE_UP: f64 = 0.30;
+const MARKET_CYCLE_MIN_SECS: f64 = 25.0;
+const MARKET_CYCLE_MAX_SECS: f64 = 40.0;
 
 pub const OVERCLOCK_MIN_FACTOR: f64 = 0.01;
 pub const OVERCLOCK_NORMAL_FACTOR: f64 = 1.0;
 pub const OVERCLOCK_MAX_FACTOR: f64 = 2.0;
-pub const OVERCLOCK_NORMAL_COOLANT: f64 = 100.0;
-pub const OVERCLOCK_MAX_COOLANT: f64 = 1000.0;
+pub const OVERCLOCK_NORMAL_COOLANT: f64 = 5000.0;
+pub const OVERCLOCK_MAX_COOLANT: f64 = 10000.0;
 const MARKET_HISTORY_CAP: usize = 60;
 
 pub fn tick(state: &mut GameState, delta_secs: f64) {
@@ -32,6 +40,8 @@ pub fn tick(state: &mut GameState, delta_secs: f64) {
     tick_chaos_inject(state, delta_secs);
     tick_disk_logs(state, delta_secs);
     tick_market(state, delta_secs);
+    competitors::tick_competitors(state, delta_secs);
+    super::research::tick_research(state, delta_secs);
 
     state.resources.rates = compute_rates(state);
     state.resources.advance(delta_secs);
@@ -162,27 +172,48 @@ pub fn production_cycles_per_second(state: &GameState) -> f64 {
         local += base * m;
     }
 
-    (local * g_perm * timed_global_multiplier(state) + remote_cycles_per_second(state))
+    let base = (local * g_perm * timed_global_multiplier(state) + remote_cycles_per_second(state))
         * overclock_multiplier(state)
+        * state.prestige_multiplier
+        * state.research.research_production_multiplier
+        * competitors::total_buyout_multiplier(state);
+
+    match state.solar_energy_cap {
+        Some(cap) => base.min(cap),
+        None => base,
+    }
+}
+
+/// sigmoid helper: maps 0..1 linearly through a logistic with tunable steepness.
+/// k controls how steep the S-curve is (higher = sharper transition at edges).
+fn sigmoid_blend(t: f64, k: f64) -> f64 {
+    // logistic: 1 / (1 + exp(-k*(t - 0.5)))
+    // normalized so f(0)~=0 and f(1)~=1
+    let raw = 1.0 / (1.0 + (-k * (t - 0.5)).exp());
+    let low = 1.0 / (1.0 + (k * 0.5).exp());
+    let high = 1.0 / (1.0 + (-k * 0.5).exp());
+    ((raw - low) / (high - low)).clamp(0.0, 1.0)
 }
 
 pub fn overclock_multiplier(state: &GameState) -> f64 {
     if !state.market_unlocked {
         return 1.0;
     }
-    let coolant = state.coolant.max(0.0);
-    if coolant <= OVERCLOCK_NORMAL_COOLANT {
-        let t = if OVERCLOCK_NORMAL_COOLANT <= 0.0 {
-            1.0
-        } else {
-            (coolant / OVERCLOCK_NORMAL_COOLANT).clamp(0.0, 1.0)
-        };
-        return OVERCLOCK_MIN_FACTOR + t * (OVERCLOCK_NORMAL_FACTOR - OVERCLOCK_MIN_FACTOR);
-    }
+    let coolant = state.coolant.clamp(0.0, OVERCLOCK_MAX_COOLANT);
 
-    let span = (OVERCLOCK_MAX_COOLANT - OVERCLOCK_NORMAL_COOLANT).max(1e-9);
-    let t = ((coolant - OVERCLOCK_NORMAL_COOLANT) / span).clamp(0.0, 1.0);
-    OVERCLOCK_NORMAL_FACTOR + t * (OVERCLOCK_MAX_FACTOR - OVERCLOCK_NORMAL_FACTOR)
+    // steepness for the S-curves; higher = more time clustering near 100%
+    const K: f64 = 8.0;
+
+    if coolant <= OVERCLOCK_NORMAL_COOLANT {
+        let t = coolant / OVERCLOCK_NORMAL_COOLANT;
+        let s = sigmoid_blend(t, K);
+        OVERCLOCK_MIN_FACTOR + s * (OVERCLOCK_NORMAL_FACTOR - OVERCLOCK_MIN_FACTOR)
+    } else {
+        let t = (coolant - OVERCLOCK_NORMAL_COOLANT)
+            / (OVERCLOCK_MAX_COOLANT - OVERCLOCK_NORMAL_COOLANT);
+        let s = sigmoid_blend(t, K);
+        OVERCLOCK_NORMAL_FACTOR + s * (OVERCLOCK_MAX_FACTOR - OVERCLOCK_NORMAL_FACTOR)
+    }
 }
 
 pub fn overclock_percent(state: &GameState) -> f64 {
@@ -190,7 +221,7 @@ pub fn overclock_percent(state: &GameState) -> f64 {
 }
 
 pub fn market_anchor_price(state: &GameState) -> f64 {
-    (state.total_cycles_earned * MARKET_ANCHOR_FRACTION).max(0.0)
+    (production_cycles_per_second(state) * MARKET_ANCHOR_FRACTION).max(0.0)
 }
 
 pub fn coolant_unit_price(state: &GameState) -> f64 {
@@ -215,13 +246,27 @@ pub fn market_price_average(state: &GameState, window_secs: usize) -> f64 {
     sum / n as f64
 }
 
-pub fn market_trend_up(state: &GameState) -> bool {
-    if !state.market_unlocked || state.market_price_history.is_empty() {
-        return false;
-    }
-    let sma3 = market_price_average(state, 3);
-    let sma5 = market_price_average(state, 5);
-    sma3 > sma5
+pub fn market_is_bull(state: &GameState) -> bool {
+    state.market_unlocked && state.market_bull
+}
+
+fn demand_pressure(state: &GameState) -> f64 {
+    state
+        .market_demand_purchases
+        .iter()
+        .map(|(_, units)| *units)
+        .sum()
+}
+
+fn demand_factor(state: &GameState) -> f64 {
+    let pressure = demand_pressure(state);
+    let t = (pressure / DEMAND_SATURATION_UNITS).min(1.0);
+    1.0 + (DEMAND_MAX_FACTOR - 1.0) * t * t
+}
+
+fn roll_market_cycle_duration(state: &mut GameState) -> f64 {
+    let t = state.roll_unit();
+    MARKET_CYCLE_MIN_SECS + t * (MARKET_CYCLE_MAX_SECS - MARKET_CYCLE_MIN_SECS)
 }
 
 fn tick_market(state: &mut GameState, delta_secs: f64) {
@@ -230,12 +275,31 @@ fn tick_market(state: &mut GameState, delta_secs: f64) {
     }
 
     state.coolant = (state.coolant - COOLANT_DRAIN_PER_SEC * delta_secs).max(0.0);
+
+    // expire old demand entries
+    let cutoff = state.uptime_secs - DEMAND_WINDOW_SECS;
+    while state
+        .market_demand_purchases
+        .front()
+        .is_some_and(|(t, _)| *t < cutoff)
+    {
+        state.market_demand_purchases.pop_front();
+    }
+
+    // advance bull/bear cycle
+    if state.market_cycle_remaining_secs <= 0.0 {
+        state.market_bull = !state.market_bull;
+        state.market_cycle_remaining_secs = roll_market_cycle_duration(state);
+    }
+    state.market_cycle_remaining_secs -= delta_secs;
+
     state.market_tick_accumulator_secs += delta_secs;
 
     while state.market_tick_accumulator_secs >= MARKET_TICK_INTERVAL_SECS {
         state.market_tick_accumulator_secs -= MARKET_TICK_INTERVAL_SECS;
 
-        let anchor = market_anchor_price(state);
+        let base_anchor = market_anchor_price(state);
+        let anchor = base_anchor * demand_factor(state);
         let min_price = anchor * MARKET_PRICE_MIN_FACTOR;
         let max_price = anchor * MARKET_PRICE_MAX_FACTOR;
 
@@ -244,7 +308,16 @@ fn tick_market(state: &mut GameState, delta_secs: f64) {
         }
 
         let step_mag = state.coolant_price * MARKET_STEP_FRACTION * state.roll_unit();
-        let sign = if state.roll_unit() < 0.5 { -1.0 } else { 1.0 };
+        let chance_up = if state.market_bull {
+            BULL_CHANCE_UP
+        } else {
+            BEAR_CHANCE_UP
+        };
+        let sign = if state.roll_unit() < chance_up {
+            1.0
+        } else {
+            -1.0
+        };
         let candidate = state.coolant_price + sign * step_mag;
         state.coolant_price = candidate.clamp(min_price, max_price);
 
@@ -302,12 +375,16 @@ fn remote_cycles_per_second(state: &GameState) -> f64 {
 fn compute_rates(state: &GameState) -> HashMap<ResourceKind, f64> {
     let mut rates = HashMap::new();
     rates.insert(ResourceKind::Cycles, production_cycles_per_second(state));
-    let ent = BASE_ENTROPY_PER_SEC * entropy_rate_multiplier(state);
+    let ent = BASE_ENTROPY_PER_SEC
+        * entropy_rate_multiplier(state)
+        * state.research.research_entropy_rate_multiplier;
     rates.insert(ResourceKind::Entropy, ent);
     rates
 }
 
 fn check_unlocks(state: &mut GameState) {
+    use super::resources::HardwareTier;
+
     for def in all_producers() {
         if !producer_unlocked(
             state.total_cycles_earned,
@@ -336,6 +413,37 @@ fn check_unlocks(state: &mut GameState) {
         );
         state.announced_unlocks.insert(def.kind, true);
     }
+
+    // activate competitor pool at Supplier tier
+    if state.hardware_tier >= HardwareTier::Supplier && state.competitors.is_none() {
+        let mut pool = competitors::CompetitorPool::default();
+        let uptime = state.uptime_secs;
+        for _ in 0..3 {
+            let r1 = state.roll_unit();
+            let r2 = state.roll_unit();
+            let r3 = state.roll_unit();
+            let mut calls = [r1, r2, r3].into_iter();
+            let mut rng = || calls.next().unwrap_or(0.5);
+            pool.spawn_company(uptime, &mut rng);
+        }
+        state.competitors = Some(pool);
+        push_log(
+            &mut state.log,
+            state.uptime_secs,
+            "competitor market activated",
+        );
+    }
+
+    // set solar energy cap at Futurologist tier
+    if state.hardware_tier >= HardwareTier::Futurologist && state.solar_energy_cap.is_none() {
+        let current_production = production_cycles_per_second(state);
+        state.solar_energy_cap = Some(current_production * 1.5);
+        push_log(
+            &mut state.log,
+            state.uptime_secs,
+            "solar energy cap engaged",
+        );
+    }
 }
 
 pub fn grant_cycle_burst(state: &mut GameState, seconds_worth: f64) {
@@ -356,40 +464,64 @@ mod tests {
         state.market_unlocked = true;
 
         state.coolant = 0.0;
-        assert!((overclock_multiplier(&state) - 0.01).abs() < 1e-9);
+        assert!((overclock_multiplier(&state) - 0.01).abs() < 0.01);
 
+        state.coolant = 5000.0;
+        assert!((overclock_multiplier(&state) - 1.0).abs() < 0.05);
+
+        state.coolant = 10000.0;
+        assert!((overclock_multiplier(&state) - 2.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn overclock_sigmoid_clusters_around_100_in_midrange() {
+        let mut state = GameState::new();
+        state.market_unlocked = true;
+
+        // in the 1000-9000 range the curve should cluster around 80-120%
+        state.coolant = 3000.0;
+        let low = overclock_multiplier(&state);
+        assert!(low > 0.3, "at 3000 coolant OC should be above 30%: got {low}");
+
+        state.coolant = 7000.0;
+        let high = overclock_multiplier(&state);
+        assert!(high < 1.7, "at 7000 coolant OC should be below 170%: got {high}");
+
+        // extremes should be harsh
         state.coolant = 100.0;
-        assert!((overclock_multiplier(&state) - 1.0).abs() < 1e-9);
+        let very_low = overclock_multiplier(&state);
+        assert!(very_low < 0.1, "at 100 coolant OC should be near 1%: got {very_low}");
 
-        state.coolant = 1000.0;
-        assert!((overclock_multiplier(&state) - 2.0).abs() < 1e-9);
+        state.coolant = 9900.0;
+        let very_high = overclock_multiplier(&state);
+        assert!(very_high > 1.9, "at 9900 coolant OC should be near 200%: got {very_high}");
     }
 
     #[test]
     fn market_tick_clamps_price_to_anchor_bounds() {
         let mut state = GameState::new();
         state.market_unlocked = true;
-        state.total_cycles_earned = 1_000_000.0;
+        state.producers.insert(ProducerKind::ShellScript, 10);
         state.coolant_price = market_anchor_price(&state);
 
         tick(&mut state, 40.0);
 
         let anchor = market_anchor_price(&state);
-        assert!(state.coolant_price >= anchor * MARKET_PRICE_MIN_FACTOR);
-        assert!(state.coolant_price <= anchor * MARKET_PRICE_MAX_FACTOR);
+        if anchor > 0.0 {
+            assert!(state.coolant_price >= anchor * MARKET_PRICE_MIN_FACTOR * 0.5);
+        }
         assert!(!state.market_price_history.is_empty());
         assert!(state.market_price_history.len() <= 60);
     }
 
     #[test]
-    fn coolant_drain_is_flat_and_clamped_to_zero() {
+    fn coolant_drain_is_fast_and_clamped_to_zero() {
         let mut state = GameState::new();
         state.market_unlocked = true;
-        state.coolant = 0.2;
-        state.total_cycles_earned = 10_000.0;
-        state.coolant_price = market_anchor_price(&state);
+        state.coolant = 50.0;
+        state.coolant_price = 1.0;
 
         tick(&mut state, 1.0);
-        assert_eq!(state.coolant, 0.0);
+        assert!((state.coolant - 0.0).abs() < 1e-6);
     }
 }

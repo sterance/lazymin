@@ -1,5 +1,7 @@
 use std::io;
 
+use serde::{Deserialize, Serialize};
+
 use super::log::push_log;
 use super::state::GameState;
 use super::upgrades::refresh_unlock_threshold_tracking;
@@ -7,12 +9,30 @@ use super::upgrades::refresh_unlock_threshold_tracking;
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(not(target_arch = "wasm32"))]
-use native::{delete_impl, load_impl, save_impl};
+use native::{delete_impl, load_impl, save_impl, load_prestige_impl, save_prestige_impl};
 
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 #[cfg(target_arch = "wasm32")]
-use wasm::{delete_impl, load_impl, save_impl};
+use wasm::{delete_impl, load_impl, save_impl, load_prestige_impl, save_prestige_impl};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrestigeData {
+    #[serde(default = "default_accumulated_multiplier")]
+    pub accumulated_multiplier: f64,
+}
+
+fn default_accumulated_multiplier() -> f64 {
+    1.0
+}
+
+impl Default for PrestigeData {
+    fn default() -> Self {
+        Self {
+            accumulated_multiplier: 1.0,
+        }
+    }
+}
 
 pub fn save(state: &GameState) -> io::Result<()> {
     save_impl(state)
@@ -24,6 +44,14 @@ pub fn load() -> io::Result<Option<GameState>> {
 
 pub fn delete() -> io::Result<()> {
     delete_impl()
+}
+
+pub fn save_prestige(data: &PrestigeData) -> io::Result<()> {
+    save_prestige_impl(data)
+}
+
+pub fn load_prestige() -> io::Result<PrestigeData> {
+    load_prestige_impl()
 }
 
 #[cfg(not(target_arch = "wasm32"))]

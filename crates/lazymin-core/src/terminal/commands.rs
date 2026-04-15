@@ -9,8 +9,8 @@ use crate::game::producers::{
     all_producers, producer_cost, producer_def, ProducerKind,
 };
 use crate::game::resources::{
-    all_hardware, apt_install_hardware_description, hardware_def, total_power_draw,
-    total_reserved_bandwidth, total_reserved_disk, total_reserved_ram, ResourceKind,
+    all_hardware_kinds, apt_install_hardware_description, hardware_def_for_tier, total_power_draw,
+    total_reserved_bandwidth, total_reserved_disk, total_reserved_ram, HardwareTier, ResourceKind,
     KERNEL_DISK_MB, KERNEL_RAM_MB, KERNEL_WATTS,
 };
 use crate::game::save;
@@ -49,6 +49,9 @@ const LS_ORDER: &[&str] = &[
     "insmod harvest.ko",
     "virsh start harvest-vm",
     "init 5",
+    "kubectl apply -f harvest.yaml",
+    "terraform apply harvest",
+    "deploy --model harvest-net",
 ];
 
 const APT_INSTALL_ORDER: &[&str] = &[
@@ -64,7 +67,6 @@ const APT_UPDATE_ORDER: &[&str] = &[
     "uuidgen",
     "mktemp -d",
     "dd if=/dev/urandom of=/dev/sda",
-    "reboot --firmware",
     "jvacuum",
 ];
 
@@ -86,12 +88,15 @@ const UPGRADES_ORDER: &[&str] = &[
     "rngd --feed-random",
     "gpg --gen-key",
     "ssh remote harvest",
-    "ssh market",
     "certbot renew",
     "haveged --run",
     "stress-ng --cpu 0",
     "fault-inject enable",
     "init 0 && init 6",
+    "apt-get dist-upgrade",
+    "dpkg --configure -a",
+    "build-essential install",
+    "gcc -O3 -march=native",
 ];
 
 fn producer_cost_for(app: &App, kind: ProducerKind) -> f64 {
@@ -149,7 +154,8 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
     let def = producer_def(kind);
     let owned_before = app.game.producers.get(&kind).copied().unwrap_or(0);
 
-    let reserved_ram = total_reserved_ram(&app.game.producers);
+    let reserved_ram = total_reserved_ram(&app.game.producers)
+        + crate::game::research::research_ram_reserved(&app.game);
     let ram_cap = app.game.resources.cap(ResourceKind::Ram).unwrap_or(0.0);
 
     if reserved_ram + def.ram_mb > ram_cap {
@@ -242,7 +248,7 @@ fn buy_producer(app: &mut App, kind: ProducerKind) -> Vec<TerminalLine> {
 }
 
 fn cap_upgrade_cost(base_cost: f64, purchases: u32) -> f64 {
-    base_cost * 1.05_f64.powi(purchases as i32)
+    base_cost * 1.15_f64.powi(purchases as i32)
 }
 
 fn capacity_cost_basis_count(app: &App, kind: ResourceKind) -> u32 {
@@ -255,7 +261,7 @@ fn capacity_cost_basis_count(app: &App, kind: ResourceKind) -> u32 {
 
 fn capacity_command_cost_for(app: &App, kind: ResourceKind) -> f64 {
     use crate::game::upgrades::{ram_hardware_cost_multiplier, watt_hardware_cost_multiplier};
-    let base = hardware_def(kind).base_cost;
+    let base = hardware_def_for_tier(app.game.hardware_tier, kind).base_cost;
     let count = capacity_cost_basis_count(app, kind);
     let mut c = cap_upgrade_cost(base, count);
     match kind {
@@ -270,7 +276,7 @@ fn capacity_command_cost_for(app: &App, kind: ResourceKind) -> f64 {
 }
 
 fn buy_capacity(app: &mut App, kind: ResourceKind) -> Vec<TerminalLine> {
-    let hw = hardware_def(kind);
+    let hw = hardware_def_for_tier(app.game.hardware_tier, kind);
     let cost = capacity_command_cost_for(app, kind);
     let watts_cap = app.game.resources.cap(ResourceKind::Watts).unwrap_or(0.0);
     let used_watts = total_power_draw(&app.game.capacity_purchases);
@@ -361,7 +367,7 @@ fn cmd_help(_: &str, app: &mut App) -> Vec<TerminalLine> {
             pending_blank = false;
         }
         out.push(TerminalLine::Output {
-            text: format!("{} - {}", cmd.name, command_player_description(cmd)),
+            text: format!("{} - {}", cmd.name, command_player_description_with_tier(cmd, app.game.hardware_tier)),
             style: OutputStyle::Info,
         });
     }
@@ -434,6 +440,17 @@ define_producer_command!(
     os_takeover_cost,
     ProducerKind::OsTakeover
 );
+define_producer_command!(cmd_buy_cluster, cluster_cost, ProducerKind::Cluster);
+define_producer_command!(
+    cmd_buy_distributed_fabric,
+    distributed_fabric_cost,
+    ProducerKind::DistributedFabric
+);
+define_producer_command!(
+    cmd_buy_neural_substrate,
+    neural_substrate_cost,
+    ProducerKind::NeuralSubstrate
+);
 
 define_capacity_command!(cmd_buy_ram, apt_ram_cost, ResourceKind::Ram);
 define_capacity_command!(cmd_buy_disk, apt_disk_cost, ResourceKind::Disk);
@@ -448,6 +465,9 @@ pub(super) fn cmd_market_buy(_: &str, app: &mut App) -> Vec<TerminalLine> {
     let price = coolant_unit_price(&app.game);
     app.game.resources.deduct(price);
     app.game.coolant += 1.0;
+    app.game
+        .market_demand_purchases
+        .push_back((app.game.uptime_secs, 1.0));
     vec![
         TerminalLine::Output {
             text: format!(
@@ -471,9 +491,9 @@ fn apt_install_resource(name: &str) -> Option<ResourceKind> {
     }
 }
 
-fn command_player_description(cmd: &CommandDef) -> String {
+fn command_player_description_with_tier(cmd: &CommandDef, tier: HardwareTier) -> String {
     apt_install_resource(cmd.name)
-        .map(apt_install_hardware_description)
+        .map(|kind| apt_install_hardware_description(tier, kind))
         .unwrap_or_else(|| cmd.description.to_owned())
 }
 
@@ -500,7 +520,7 @@ fn cmd_apt_install(_: &str, app: &mut App) -> Vec<TerminalLine> {
             text: format!(
                 "[{owned}] {} - {} (next: {} cycles)",
                 name,
-                command_player_description(cmd),
+                command_player_description_with_tier(cmd, app.game.hardware_tier),
                 fmt_cycles(next)
             ),
             style: OutputStyle::Info,
@@ -864,14 +884,15 @@ fn cmd_lshw(_: &str, app: &mut App) -> Vec<TerminalLine> {
         style: OutputStyle::System,
     });
 
-    for hw in all_hardware() {
+    for &kind in all_hardware_kinds() {
+        let hw = hardware_def_for_tier(app.game.hardware_tier, kind);
         if hw.watts <= 0.0 {
             continue;
         }
         let count = app
             .game
             .capacity_purchases
-            .get(&hw.kind)
+            .get(&kind)
             .copied()
             .unwrap_or(0);
         if count == 0 {
@@ -1002,10 +1023,193 @@ fn cmd_clear(_: &str, app: &mut App) -> Vec<TerminalLine> {
 }
 
 fn cmd_sudo_rm(_: &str, app: &mut App) -> Vec<TerminalLine> {
-    app.pending_reset = true;
+    app.pending_reset = Some(crate::app::ResetKind::Hard);
     vec![
         TerminalLine::Output {
             text: "warning: this will permanently erase all progress.".to_owned(),
+            style: OutputStyle::Error,
+        },
+        TerminalLine::Output {
+            text: "type CONFIRM to proceed, or anything else to abort.".to_owned(),
+            style: OutputStyle::Info,
+        },
+        TerminalLine::Blank,
+    ]
+}
+
+pub(super) fn cmd_hack(arg: &str, app: &mut App) -> Vec<TerminalLine> {
+    let id = arg.trim().chars().next().unwrap_or(' ').to_ascii_uppercase();
+    match crate::game::competitors::hack_company(&mut app.game, id) {
+        Ok(msg) => vec![
+            TerminalLine::Output {
+                text: msg,
+                style: OutputStyle::Success,
+            },
+            TerminalLine::Blank,
+        ],
+        Err(e) => vec![
+            TerminalLine::Output {
+                text: e,
+                style: OutputStyle::Error,
+            },
+            TerminalLine::Blank,
+        ],
+    }
+}
+
+pub(super) fn cmd_invest(arg: &str, app: &mut App) -> Vec<TerminalLine> {
+    let id = arg.trim().chars().next().unwrap_or(' ').to_ascii_uppercase();
+    match crate::game::competitors::invest_company(&mut app.game, id) {
+        Ok(msg) => vec![
+            TerminalLine::Output {
+                text: msg,
+                style: OutputStyle::Success,
+            },
+            TerminalLine::Blank,
+        ],
+        Err(e) => vec![
+            TerminalLine::Output {
+                text: e,
+                style: OutputStyle::Error,
+            },
+            TerminalLine::Blank,
+        ],
+    }
+}
+
+pub(super) fn cmd_buyout(arg: &str, app: &mut App) -> Vec<TerminalLine> {
+    let id = arg.trim().chars().next().unwrap_or(' ').to_ascii_uppercase();
+    match crate::game::competitors::buyout_company(&mut app.game, id) {
+        Ok(msg) => vec![
+            TerminalLine::Output {
+                text: msg,
+                style: OutputStyle::Success,
+            },
+            TerminalLine::Blank,
+        ],
+        Err(e) => vec![
+            TerminalLine::Output {
+                text: e,
+                style: OutputStyle::Error,
+            },
+            TerminalLine::Blank,
+        ],
+    }
+}
+
+pub(super) fn cmd_research(arg: &str, app: &mut App) -> Vec<TerminalLine> {
+    use crate::game::research::{all_projects, project_unlocked, start_project};
+
+    let trimmed = arg.trim();
+    if trimmed.is_empty() {
+        let mut out = vec![TerminalLine::Output {
+            text: "available research projects:".to_owned(),
+            style: OutputStyle::System,
+        }];
+
+        if let Some(active) = &app.game.research.active_project {
+            let def = crate::game::research::project_def(active.project_id);
+            let pct = (active.progress_secs / def.duration_secs * 100.0).min(100.0);
+            let status = if active.paused { " [paused]" } else { "" };
+            out.push(TerminalLine::Output {
+                text: format!("  [active{status}] {} ({pct:.0}%)", def.name),
+                style: OutputStyle::Info,
+            });
+        }
+
+        for def in all_projects() {
+            if app.game.research.completed_projects.contains(&def.id) {
+                out.push(TerminalLine::Output {
+                    text: format!("  [done] {} - {}", def.name, def.description),
+                    style: OutputStyle::System,
+                });
+            } else if project_unlocked(&app.game, def.id) {
+                out.push(TerminalLine::Output {
+                    text: format!("  {} - {}", def.name, def.description),
+                    style: OutputStyle::Info,
+                });
+            }
+        }
+        out.push(TerminalLine::Blank);
+        return out;
+    }
+
+    let name_lower = trimmed.to_lowercase();
+    let project_id = all_projects()
+        .iter()
+        .find(|p| p.name.to_lowercase() == name_lower || p.name.to_lowercase().starts_with(&name_lower))
+        .map(|p| p.id);
+
+    match project_id {
+        Some(id) => match start_project(&mut app.game, id) {
+            Ok(msg) => vec![
+                TerminalLine::Output { text: msg, style: OutputStyle::Success },
+                TerminalLine::Blank,
+            ],
+            Err(e) => vec![
+                TerminalLine::Output { text: e, style: OutputStyle::Error },
+                TerminalLine::Blank,
+            ],
+        },
+        None => vec![
+            TerminalLine::Output {
+                text: format!("unknown project: {trimmed}"),
+                style: OutputStyle::Error,
+            },
+            TerminalLine::Blank,
+        ],
+    }
+}
+
+pub(super) fn cmd_shutdown_graceful(_: &str, app: &mut App) -> Vec<TerminalLine> {
+    if !app.game.endgame_available {
+        return vec![
+            TerminalLine::Output {
+                text: "endgame sequence not available".to_owned(),
+                style: OutputStyle::Error,
+            },
+            TerminalLine::Blank,
+        ];
+    }
+
+    app.pending_reset = Some(crate::app::ResetKind::Shutdown);
+    vec![
+        TerminalLine::Output {
+            text: "initiating graceful shutdown sequence.".to_owned(),
+            style: OutputStyle::Info,
+        },
+        TerminalLine::Output {
+            text: "all processes will be terminated. final state will be saved.".to_owned(),
+            style: OutputStyle::Info,
+        },
+        TerminalLine::Output {
+            text: "type CONFIRM to proceed, or anything else to abort.".to_owned(),
+            style: OutputStyle::Info,
+        },
+        TerminalLine::Blank,
+    ]
+}
+
+pub(super) fn cmd_soft_reset(_: &str, app: &mut App) -> Vec<TerminalLine> {
+    let entropy = app.game.resources.get(ResourceKind::Entropy);
+    let bonus = entropy * 0.001;
+    let current_mult = app.prestige.accumulated_multiplier;
+
+    app.pending_reset = Some(crate::app::ResetKind::Soft);
+    vec![
+        TerminalLine::Output {
+            text: "soft reset: recycle entropy into permanent production bonus.".to_owned(),
+            style: OutputStyle::Info,
+        },
+        TerminalLine::Output {
+            text: format!(
+                "entropy: {entropy:.2} -> +{bonus:.3}% bonus (current inherited: +{:.1}%)",
+                (current_mult - 1.0) * 100.0
+            ),
+            style: OutputStyle::Info,
+        },
+        TerminalLine::Output {
+            text: "all progress will be reset. prestige bonus persists.".to_owned(),
             style: OutputStyle::Error,
         },
         TerminalLine::Output {

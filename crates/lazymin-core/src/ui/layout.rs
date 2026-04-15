@@ -16,6 +16,7 @@ pub struct AppAreas {
     pub header: Rect,
     pub resources: Rect,
     pub market: Option<Rect>,
+    pub competitors: Option<Rect>,
     pub terminal: Rect,
     pub log: Rect,
 }
@@ -29,6 +30,15 @@ pub fn left_rail_columns(compact_left_rail: bool) -> u16 {
 }
 
 pub fn compute(area: Rect, market_unlocked: bool, compact_left_rail: bool) -> AppAreas {
+    compute_full(area, market_unlocked, false, compact_left_rail)
+}
+
+pub fn compute_full(
+    area: Rect,
+    market_unlocked: bool,
+    competitors_active: bool,
+    compact_left_rail: bool,
+) -> AppAreas {
     let area = content_area_with_left_padding(area);
     let left_w = left_rail_columns(compact_left_rail);
     let vertical = if compact_left_rail {
@@ -65,21 +75,33 @@ pub fn compute(area: Rect, market_unlocked: bool, compact_left_rail: bool) -> Ap
         .constraints([Constraint::Length(left_w), Constraint::Min(1)])
         .split(vertical[main_idx]);
 
-    let (resources, market) = if market_unlocked {
+    let (resources, market, competitors) = if market_unlocked && competitors_active {
+        let resources_min = if compact_left_rail { 23 } else { 8 };
+        let left = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(resources_min),
+                Constraint::Length(6),
+                Constraint::Length(7),
+            ])
+            .split(top[0]);
+        (left[0], Some(left[1]), Some(left[2]))
+    } else if market_unlocked {
         let resources_min = if compact_left_rail { 23 } else { 8 };
         let left = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(resources_min), Constraint::Length(6)])
             .split(top[0]);
-        (left[0], Some(left[1]))
+        (left[0], Some(left[1]), None)
     } else {
-        (top[0], None)
+        (top[0], None, None)
     };
 
     AppAreas {
         header: vertical[header_idx],
         resources,
         market,
+        competitors,
         terminal: top[1],
         log: vertical[log_idx],
     }

@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::log::push_log;
-use super::producers::{all_producers, ProducerKind};
-use super::resources::{total_power_draw, ResourceKind};
+use super::producers::ProducerKind;
+use super::resources::{total_power_draw, HardwareTier, ResourceKind};
 use super::state::GameState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -34,6 +34,10 @@ pub enum UpgradeKind {
     RebootFirmware,
     Init0Init6,
     JournaldVacuum,
+    DistUpgrade,
+    DpkgConfigure,
+    BuildEssential,
+    GccO3,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -95,6 +99,7 @@ pub enum UpgradeEffect {
     DiskLogReset,
     RemoteHarvestChannel,
     MarketUnlock,
+    TierAdvance,
 }
 
 impl UpgradeEffect {
@@ -292,14 +297,7 @@ const ALL: &[UpgradeDef] = &[
         description: "use spare bandwidth for bonus cycles/s",
         effect: UpgradeEffect::RemoteHarvestChannel,
     },
-    UpgradeDef {
-        kind: UpgradeKind::SshMarket,
-        command: "ssh market",
-        cycles_cost: 100_000.0,
-        entropy_cost: 0.0,
-        description: "grants access to overclocking and the coolant market",
-        effect: UpgradeEffect::MarketUnlock,
-    },
+    // SshMarket removed: market now unlocks via tier advance to Business
     UpgradeDef {
         kind: UpgradeKind::MktempD,
         command: "mktemp -d",
@@ -357,14 +355,7 @@ const ALL: &[UpgradeDef] = &[
             factor: 2.0,
         },
     },
-    UpgradeDef {
-        kind: UpgradeKind::RebootFirmware,
-        command: "reboot --firmware",
-        cycles_cost: 50_000.0,
-        entropy_cost: 10.0,
-        description: "reset hardware purchase cost scaling (keep caps)",
-        effect: UpgradeEffect::HardwareCostBasisReset,
-    },
+    // RebootFirmware removed: hardware cost basis now resets on tier transitions
     UpgradeDef {
         kind: UpgradeKind::Init0Init6,
         command: "init 0 && init 6",
@@ -380,6 +371,38 @@ const ALL: &[UpgradeDef] = &[
         entropy_cost: 0.0,
         description: "clear accumulated log disk usage",
         effect: UpgradeEffect::DiskLogReset,
+    },
+    UpgradeDef {
+        kind: UpgradeKind::DistUpgrade,
+        command: "apt-get dist-upgrade",
+        cycles_cost: 50_000.0,
+        entropy_cost: 0.0,
+        description: "advance to business-tier hardware",
+        effect: UpgradeEffect::TierAdvance,
+    },
+    UpgradeDef {
+        kind: UpgradeKind::DpkgConfigure,
+        command: "dpkg --configure -a",
+        cycles_cost: 500_000.0,
+        entropy_cost: 0.0,
+        description: "advance to supplier-tier hardware",
+        effect: UpgradeEffect::TierAdvance,
+    },
+    UpgradeDef {
+        kind: UpgradeKind::BuildEssential,
+        command: "build-essential install",
+        cycles_cost: 5_000_000.0,
+        entropy_cost: 0.0,
+        description: "advance to innovator-tier hardware",
+        effect: UpgradeEffect::TierAdvance,
+    },
+    UpgradeDef {
+        kind: UpgradeKind::GccO3,
+        command: "gcc -O3 -march=native",
+        cycles_cost: 50_000_000.0,
+        entropy_cost: 0.0,
+        description: "advance to futurologist-tier hardware",
+        effect: UpgradeEffect::TierAdvance,
     },
 ];
 
@@ -423,7 +446,6 @@ const LATE_FOR_RNGD: &[UpgradeKind] = &[
     UpgradeKind::BpftraceTracepoint,
     UpgradeKind::NumactlInterleave,
     UpgradeKind::StressNgCpu,
-    UpgradeKind::RebootFirmware,
     UpgradeKind::Init0Init6,
 ];
 
@@ -448,7 +470,7 @@ pub fn disk_usage_ratio(state: &GameState) -> f64 {
 
 pub fn effective_disk_cap(state: &GameState) -> f64 {
     let base = state.resources.cap(ResourceKind::Disk).unwrap_or(0.0);
-    base * state.disk_cap_scale
+    base * state.disk_cap_scale * state.research.research_disk_cap_multiplier
 }
 
 pub fn refresh_unlock_threshold_tracking(state: &mut GameState) {
@@ -534,6 +556,10 @@ fn producer_peak(state: &GameState, kind: ProducerKind) -> u32 {
 }
 
 pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
+    // removed upgrades are never unlockable
+    if ALL.iter().all(|u| u.kind != kind) {
+        return false;
+    }
     if !is_burst_upgrade(kind) && state.purchased_upgrades.contains(&kind) {
         return false;
     }
@@ -576,9 +602,8 @@ pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
                 >= 1
                 && !state.remote_channel_active
         }
-        UpgradeKind::SshMarket => all_producers().iter().any(|d| {
-            d.bw_mbps > 0.0 && state.ever_owned_producers.contains(&d.kind)
-        }),
+        // deprecated: market now unlocks via tier advance
+        UpgradeKind::SshMarket => false,
         UpgradeKind::MktempD => state.disk_usage_ratio_peak >= 0.75,
         UpgradeKind::DdDevRandomDisk => state.max_total_producers_peak >= 20,
         UpgradeKind::CertbotRenew => {
@@ -593,15 +618,34 @@ pub fn upgrade_unlocked(state: &GameState, kind: UpgradeKind) -> bool {
                 .contains(&ProducerKind::Hypervisor)
         }
         UpgradeKind::FaultInjectEnable => producer_peak(state, ProducerKind::KernelModule) >= 5,
-        UpgradeKind::RebootFirmware => {
-            state.capacity_purchases.values().copied().sum::<u32>() >= 20
-        }
+        // deprecated: hardware cost basis now resets on tier transitions
+        UpgradeKind::RebootFirmware => false,
         UpgradeKind::Init0Init6 => {
             state
                 .ever_owned_producers
                 .contains(&ProducerKind::OsTakeover)
         }
         UpgradeKind::JournaldVacuum => state.ever_had_disk_log_usage,
+        UpgradeKind::DistUpgrade => {
+            state.hardware_tier == HardwareTier::Consumer
+                && state.hit_resource_gate
+                && state.max_total_producers_peak >= 5
+        }
+        UpgradeKind::DpkgConfigure => {
+            state.hardware_tier == HardwareTier::Business
+                && state.market_unlocked
+                && state.capacity_purchases.values().copied().sum::<u32>() >= 10
+        }
+        UpgradeKind::BuildEssential => {
+            state.hardware_tier == HardwareTier::Supplier
+                && state.competitors.as_ref().is_some_and(|c| {
+                    c.total_buyouts > 0
+                })
+        }
+        UpgradeKind::GccO3 => {
+            state.hardware_tier == HardwareTier::Innovator
+                && state.research.completed_projects.len() >= 1
+        }
     }
 }
 
@@ -718,6 +762,31 @@ pub fn apply_upgrade_purchase(state: &mut GameState, kind: UpgradeKind, entropy_
                 "market unlocked: coolant trading and overclocking online",
             );
         }
+        UpgradeEffect::TierAdvance => {
+            if let Some(next) = state.hardware_tier.next() {
+                state.hardware_tier = next;
+                state.hardware_cost_basis.clear();
+                push_log(
+                    &mut state.log,
+                    state.uptime_secs,
+                    format!("hardware tier advanced: {:?}", next),
+                );
+                if next >= HardwareTier::Business && !state.market_unlocked {
+                    state.market_unlocked = true;
+                    if state.coolant_price <= 0.0 {
+                        state.coolant_price = crate::game::tick::market_anchor_price(state);
+                    }
+                    if state.market_price_history.is_empty() {
+                        state.market_price_history.push_back(state.coolant_price);
+                    }
+                    push_log(
+                        &mut state.log,
+                        state.uptime_secs,
+                        "market unlocked: coolant trading and overclocking online",
+                    );
+                }
+            }
+        }
         UpgradeEffect::TimedGlobalMultiplier { .. }
         | UpgradeEffect::HardwareCostBasisReset
         | UpgradeEffect::DiskPause { .. }
@@ -823,29 +892,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ssh_market_unlocks_after_first_bw_producer_owned() {
-        let mut state = GameState::new();
+    fn ssh_market_deprecated_always_locked() {
+        let state = GameState::new();
         assert!(!upgrade_unlocked(&state, UpgradeKind::SshMarket));
-
-        state.producers.insert(ProducerKind::KernelModule, 1);
-        state
-            .ever_owned_producers
-            .insert(ProducerKind::KernelModule);
-        assert!(upgrade_unlocked(&state, UpgradeKind::SshMarket));
     }
 
     #[test]
-    fn ssh_market_is_one_time_and_activates_market() {
+    fn tier_advance_unlocks_market_at_business() {
         let mut state = GameState::new();
-        state.producers.insert(ProducerKind::KernelModule, 1);
-        state
-            .ever_owned_producers
-            .insert(ProducerKind::KernelModule);
-        assert!(upgrade_unlocked(&state, UpgradeKind::SshMarket));
+        state.hit_resource_gate = true;
+        state.max_total_producers_peak = 5;
+        assert!(upgrade_unlocked(&state, UpgradeKind::DistUpgrade));
 
-        apply_upgrade_purchase(&mut state, UpgradeKind::SshMarket, 0.0);
-
+        apply_upgrade_purchase(&mut state, UpgradeKind::DistUpgrade, 0.0);
         assert!(state.market_unlocked);
-        assert!(!upgrade_unlocked(&state, UpgradeKind::SshMarket));
+        assert_eq!(state.hardware_tier, super::super::resources::HardwareTier::Business);
     }
 }

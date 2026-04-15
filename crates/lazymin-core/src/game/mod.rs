@@ -1,6 +1,8 @@
+pub mod competitors;
 pub mod log;
 pub mod hints;
 pub mod producers;
+pub mod research;
 pub mod resources;
 pub mod save;
 pub mod state;

@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use crate::game::log::push_log;
 use crate::game::hints;
 use crate::game::save;
+use crate::game::save::PrestigeData;
 use crate::game::state::GameState;
 use crate::game::tick;
 use crate::input::InputEvent;
@@ -15,11 +16,19 @@ const MAX_TERMINAL_LINES: usize = 1_000_000;
 const MAX_HISTORY_ENTRIES: usize = 1_000_000;
 const SCROLL_SPEED: usize = 3;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResetKind {
+    Hard,
+    Soft,
+    Shutdown,
+}
+
 pub struct App {
     pub game: GameState,
     pub terminal: TerminalState,
     pub should_quit: bool,
-    pub pending_reset: bool,
+    pub pending_reset: Option<ResetKind>,
+    pub prestige: PrestigeData,
     pub terminal_scroll_back: usize,
     pub log_scroll_back: usize,
     pub frame_size: (u16, u16),
@@ -29,11 +38,15 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
+        let prestige = save::load_prestige().unwrap_or_default();
+        let mut game = GameState::new();
+        game.prestige_multiplier = prestige.accumulated_multiplier;
         Self {
-            game: GameState::new(),
+            game,
             terminal: TerminalState::new(),
             should_quit: false,
-            pending_reset: false,
+            pending_reset: None,
+            prestige,
             terminal_scroll_back: 0,
             log_scroll_back: 0,
             frame_size: (0, 0),
@@ -43,12 +56,14 @@ impl App {
     }
 
     pub fn with_game_state(game: GameState) -> Self {
+        let prestige = save::load_prestige().unwrap_or_default();
         let initial_log_len = game.log.len();
         Self {
             game,
             terminal: TerminalState::new(),
             should_quit: false,
-            pending_reset: false,
+            pending_reset: None,
+            prestige,
             terminal_scroll_back: 0,
             log_scroll_back: 0,
             frame_size: (0, 0),
@@ -122,38 +137,79 @@ impl App {
                 self.terminal.history_idx = None;
                 self.terminal.saved_input = None;
 
-                if self.pending_reset {
+                if let Some(reset_kind) = self.pending_reset {
                     let trimmed = input.trim();
                     if trimmed == "CONFIRM" {
-                        let delete_res = save::delete();
-                        self.game = GameState::new();
-                        self.pending_reset = false;
+                        match reset_kind {
+                            ResetKind::Hard => {
+                                let delete_res = save::delete();
+                                self.game = GameState::new();
+                                self.game.prestige_multiplier =
+                                    self.prestige.accumulated_multiplier;
+                                self.pending_reset = None;
+                                self.terminal.clear_lines();
 
-                        self.terminal.clear_lines();
-
-                        match delete_res {
-                            Ok(()) => {}
-                            Err(e) => {
-                                let text = format!(
-                                    "all data erased, but save deletion failed: {e}"
+                                if let Err(e) = delete_res {
+                                    let text = format!(
+                                        "all data erased, but save deletion failed: {e}"
+                                    );
+                                    push_log(
+                                        &mut self.game.log,
+                                        self.game.uptime_secs,
+                                        text.clone(),
+                                    );
+                                    self.terminal.lines.push_back(TerminalLine::Output {
+                                        text,
+                                        style: OutputStyle::Error,
+                                    });
+                                    self.terminal.lines.push_back(TerminalLine::Blank);
+                                }
+                            }
+                            ResetKind::Soft => {
+                                let entropy = self.game.resources.get(
+                                    crate::game::resources::ResourceKind::Entropy,
                                 );
-                                let style = OutputStyle::Error;
+                                let bonus = entropy * 0.001;
+                                self.prestige.accumulated_multiplier += bonus;
+                                let _ = save::save_prestige(&self.prestige);
+                                let _ = save::delete();
 
+                                self.game = GameState::new();
+                                self.game.prestige_multiplier =
+                                    self.prestige.accumulated_multiplier;
+                                self.pending_reset = None;
+                                self.terminal.clear_lines();
+
+                                let pct =
+                                    (self.prestige.accumulated_multiplier - 1.0) * 100.0;
                                 push_log(
                                     &mut self.game.log,
                                     self.game.uptime_secs,
-                                    text.clone(),
+                                    format!(
+                                        "system initialized [+{pct:.1}% prior instance data retained]"
+                                    ),
                                 );
-                                self.terminal.lines.push_back(TerminalLine::Output {
-                                    text,
-                                    style,
-                                });
-                                self.terminal.lines.push_back(TerminalLine::Blank);
+                            }
+                            ResetKind::Shutdown => {
+                                self.game.game_complete = true;
+                                let _ = save::save(&self.game);
+                                self.pending_reset = None;
+                                self.terminal.clear_lines();
+                                push_log(
+                                    &mut self.game.log,
+                                    self.game.uptime_secs,
+                                    "graceful shutdown complete. simulation ended.",
+                                );
+                                push_log(
+                                    &mut self.game.log,
+                                    self.game.uptime_secs,
+                                    "thank you for playing.",
+                                );
                             }
                         }
                         self.terminal.trim_lines();
                     } else {
-                        self.pending_reset = false;
+                        self.pending_reset = None;
                         self.terminal.lines.push_back(TerminalLine::Input {
                             raw: input.clone(),
                         });

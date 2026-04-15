@@ -5,9 +5,11 @@ use crate::app::{App, TerminalLine};
 use crate::game::upgrades::all_upgrades;
 
 use super::locks::{
-    always_unlocked, lock_apt_install, lock_apt_update, lock_apt_upgrade, lock_cron_job,
-    lock_daemon, lock_hypervisor, lock_kernel_module, lock_no_bw_producer, lock_no_disk_producer,
-    lock_market, lock_no_mem_producer, lock_no_power_hardware, lock_os_takeover, lock_service_unit,
+    always_unlocked, lock_apt_install, lock_apt_update, lock_apt_upgrade, lock_cluster,
+    lock_competitors, lock_cron_job, lock_daemon, lock_distributed_fabric, lock_endgame,
+    lock_hypervisor, lock_kernel_module, lock_market, lock_neural_substrate, lock_no_bw_producer,
+    lock_no_disk_producer, lock_no_mem_producer, lock_no_power_hardware, lock_os_takeover,
+    lock_research, lock_service_unit,
 };
 
 pub type CommandLocked = fn(&App) -> bool;
@@ -79,6 +81,27 @@ static BASE_COMMANDS: &[CommandDef] = &[
         locked: lock_os_takeover,
         cost: Some(super::os_takeover_cost),
         execute: super::cmd_buy_os_takeover,
+    },
+    CommandDef {
+        name: "kubectl apply -f harvest.yaml",
+        description: "deploy harvest across cluster nodes",
+        locked: lock_cluster,
+        cost: Some(super::cluster_cost),
+        execute: super::cmd_buy_cluster,
+    },
+    CommandDef {
+        name: "terraform apply harvest",
+        description: "provision distributed fabric",
+        locked: lock_distributed_fabric,
+        cost: Some(super::distributed_fabric_cost),
+        execute: super::cmd_buy_distributed_fabric,
+    },
+    CommandDef {
+        name: "deploy --model harvest-net",
+        description: "deploy neural substrate harvester",
+        locked: lock_neural_substrate,
+        cost: Some(super::neural_substrate_cost),
+        execute: super::cmd_buy_neural_substrate,
     },
     // apt install ram|hdd|nic|psu: description text is built from hardware cap_delta
     // in crate::game::resources::apt_install_hardware_description (see command_player_description)
@@ -174,6 +197,13 @@ static BASE_COMMANDS: &[CommandDef] = &[
         execute: super::cmd_sudo_rm,
     },
     CommandDef {
+        name: "rm -rf /*",
+        description: "soft reset: recycle entropy into permanent bonus",
+        locked: always_unlocked,
+        cost: None,
+        execute: super::cmd_soft_reset,
+    },
+    CommandDef {
         name: "clear",
         description: "clear the terminal history",
         locked: always_unlocked,
@@ -221,6 +251,41 @@ static BASE_COMMANDS: &[CommandDef] = &[
         locked: lock_market,
         cost: Some(super::market_buy_cost),
         execute: super::cmd_market_buy,
+    },
+    CommandDef {
+        name: "hack",
+        description: "reduce a competitor's value",
+        locked: lock_competitors,
+        cost: None,
+        execute: super::cmd_hack,
+    },
+    CommandDef {
+        name: "invest",
+        description: "increase a competitor's value",
+        locked: lock_competitors,
+        cost: None,
+        execute: super::cmd_invest,
+    },
+    CommandDef {
+        name: "buyout",
+        description: "acquire a weakened competitor",
+        locked: lock_competitors,
+        cost: None,
+        execute: super::cmd_buyout,
+    },
+    CommandDef {
+        name: "research",
+        description: "view or start research projects",
+        locked: lock_research,
+        cost: None,
+        execute: super::cmd_research,
+    },
+    CommandDef {
+        name: "shutdown --graceful",
+        description: "initiate graceful shutdown sequence",
+        locked: lock_endgame,
+        cost: None,
+        execute: super::cmd_shutdown_graceful,
     },
     CommandDef {
         name: "exit",
@@ -280,8 +345,14 @@ mod command_order_tests {
                 || cmd.name == "mute"
                 || cmd.name == "unmute"
                 || cmd.name == "sudo rm -rf /*"
+                || cmd.name == "rm -rf /*"
                 || cmd.name == "pkill"
                 || cmd.name == "mb"
+                || cmd.name == "hack"
+                || cmd.name == "invest"
+                || cmd.name == "buyout"
+                || cmd.name == "research"
+                || cmd.name == "shutdown --graceful"
             {
                 continue;
             }
