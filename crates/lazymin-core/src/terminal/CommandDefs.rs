@@ -294,6 +294,37 @@ static BASE_COMMANDS: &[CommandDef] = &[
         cost: None,
         execute: super::cmd_exit,
     },
+    // hidden dev commands: never listed in HELP_ORDER/LS_ORDER/etc., available in all builds
+    // for playtesting (native and web). keep in sync with the exclusion list in
+    // all_base_commands_accounted_for_in_ordered_lists below.
+    CommandDef {
+        name: "tier-skip 2",
+        description: "",
+        locked: always_unlocked,
+        cost: None,
+        execute: super::cmd_tier_skip,
+    },
+    CommandDef {
+        name: "tier-skip 3",
+        description: "",
+        locked: always_unlocked,
+        cost: None,
+        execute: super::cmd_tier_skip,
+    },
+    CommandDef {
+        name: "tier-skip 4",
+        description: "",
+        locked: always_unlocked,
+        cost: None,
+        execute: super::cmd_tier_skip,
+    },
+    CommandDef {
+        name: "tier-skip 5",
+        description: "",
+        locked: always_unlocked,
+        cost: None,
+        execute: super::cmd_tier_skip,
+    },
 ];
 
 static COMMAND_REGISTRY: Lazy<&'static [CommandDef]> = Lazy::new(|| {
@@ -348,6 +379,7 @@ mod command_order_tests {
                 || cmd.name == "rm -rf /*"
                 || cmd.name == "pkill"
                 || cmd.name == "shutdown --graceful"
+                || cmd.name.starts_with("tier-skip ")
             {
                 continue;
             }

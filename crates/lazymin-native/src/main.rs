@@ -177,7 +177,11 @@ fn main() -> AppResult<()> {
     #[cfg(feature = "dev-presets")]
     let mut app = match parse_dev_tier_from_env_args() {
         Ok(Some(tier)) => {
-            eprintln!("dev preset active: {}", tier.as_str());
+            eprintln!(
+                "dev preset active: tier {} ({})",
+                tier.as_str(),
+                tier.hardware_tier_label()
+            );
             App::with_game_state(dev_game_state(tier))
         }
         Ok(None) => app_from_disk_or_new(),

@@ -1030,4 +1030,92 @@ mod tests {
             "research with args should never be 'command not found'"
         );
     }
+
+    #[test]
+    fn tier_skip_command_sets_hardware_tier_for_each_level() {
+        use crate::game::producers::ProducerKind;
+        use crate::game::resources::HardwareTier;
+
+        let cases = [
+            ("tier-skip 2", HardwareTier::Business, "Business"),
+            ("tier-skip 3", HardwareTier::Supplier, "Supplier"),
+            ("tier-skip 4", HardwareTier::Innovator, "Innovator"),
+            ("tier-skip 5", HardwareTier::Futurologist, "Futurologist"),
+        ];
+        for (input, expected_tier, label) in cases {
+            let mut app = App::new();
+            let out = run(input, &mut app);
+            assert_eq!(
+                app.game.hardware_tier, expected_tier,
+                "{input} should set hardware_tier to {expected_tier:?}"
+            );
+            assert!(
+                app.game.producers.contains_key(&ProducerKind::ShellScript),
+                "{input} should seed producers"
+            );
+            assert!(
+                out.lines.iter().any(|l| matches!(
+                    l,
+                    TerminalLine::Output { text, .. } if text.contains(label)
+                )),
+                "{input} output should mention {label}: {:?}",
+                out.lines
+            );
+        }
+    }
+
+    #[test]
+    fn tier_skip_preserves_prestige_multiplier() {
+        let mut app = App::new();
+        app.prestige.accumulated_multiplier = 1.75;
+        run("tier-skip 3", &mut app);
+        assert!(
+            (app.game.prestige_multiplier - 1.75).abs() < 1e-9,
+            "prestige multiplier should carry into the new game state"
+        );
+    }
+
+    #[test]
+    fn tier_skip_invalid_argument_returns_command_not_found() {
+        for bad in ["tier-skip 1", "tier-skip 6", "tier-skip"] {
+            let mut app = App::new();
+            let out = run(bad, &mut app);
+            let joined: String = out
+                .lines
+                .iter()
+                .filter_map(|l| match l {
+                    TerminalLine::Output { text, .. } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                joined.contains("command not found"),
+                "{bad:?} should be rejected as unknown command, got: {joined}"
+            );
+        }
+    }
+
+    #[test]
+    fn tier_skip_is_not_listed_in_help_ls_or_apt_install() {
+        let mut app = App::new();
+        app.game.hit_resource_gate = true;
+
+        for cmd in ["help", "ls", "apt install"] {
+            let out = run(cmd, &mut app);
+            let joined: String = out
+                .lines
+                .iter()
+                .filter_map(|l| match l {
+                    TerminalLine::Output { text, .. } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                !joined.contains("tier-skip"),
+                "{cmd} output must not mention tier-skip: {joined}"
+            );
+        }
+    }
 }

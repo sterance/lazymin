@@ -9,5 +9,4 @@ pub mod state;
 pub mod tick;
 pub mod upgrades;
 
-#[cfg(feature = "dev-presets")]
 pub mod dev_presets;

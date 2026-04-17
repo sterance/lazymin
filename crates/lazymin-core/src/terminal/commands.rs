@@ -5,6 +5,7 @@ mod locks;
 
 use crate::app::{App, OutputStyle, TerminalLine};
 use crate::format::{fmt_bandwidth, fmt_bytes, fmt_bytes_rate, fmt_cycles, fmt_cycles_rate, fmt_watts};
+use crate::game::dev_presets::{dev_game_state, DevTier};
 use crate::game::producers::{
     all_producers, producer_cost, producer_def, ProducerKind,
 };
@@ -1268,6 +1269,34 @@ fn cmd_exit(_: &str, app: &mut App) -> Vec<TerminalLine> {
 
 fn cmd_upgrade_unused(_: &str, _: &mut App) -> Vec<TerminalLine> {
     Vec::new()
+}
+
+// hidden dev command: swaps app.game for a tier-N preset. kept in the registry for native and
+// web playtesting; never surfaced in help/ls/apt menus (see CommandDefs.rs exclusion list).
+fn cmd_tier_skip(input: &str, app: &mut App) -> Vec<TerminalLine> {
+    let digit = input.trim().strip_prefix("tier-skip ").unwrap_or("");
+    let Some(tier) = DevTier::from_str(digit) else {
+        return vec![
+            TerminalLine::Output {
+                text: format!("tier-skip: unknown tier {digit:?}"),
+                style: OutputStyle::Error,
+            },
+            TerminalLine::Blank,
+        ];
+    };
+
+    let mut new_game = dev_game_state(tier);
+    new_game.prestige_multiplier = app.prestige.accumulated_multiplier;
+    app.game = new_game;
+    app.terminal.clear_lines();
+
+    vec![
+        TerminalLine::Output {
+            text: format!("tier-skip: now at {}", tier.hardware_tier_label()),
+            style: OutputStyle::System,
+        },
+        TerminalLine::Blank,
+    ]
 }
 
 fn cmd_upgrades(_: &str, app: &mut App) -> Vec<TerminalLine> {
