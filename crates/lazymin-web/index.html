@@ -116,7 +116,8 @@
       z-index: 6;
       background: #000000;
       border-top: 1px solid #1a3d2a;
-      padding-bottom: env(safe-area-inset-bottom, 0px);
+      border-bottom: 1px solid #1a3d2a;
+      padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
       min-height: 200px;
       min-height: max(11rem, 200px);
       max-height: 48vh;
@@ -143,6 +144,13 @@
     body.web-mobile-portrait #osk-host .hg-button.hg-activeButton {
       background: #163d26;
       color: #5cff8f;
+    }
+    body.web-mobile-portrait #osk-host .lazymin-key-punct {
+      flex: 0 0 12%;
+      max-width: 64px;
+    }
+    body.web-mobile-portrait #osk-host .lazymin-key-space {
+      flex: 1 1 auto;
     }
   </style>
 </head>
@@ -350,15 +358,15 @@
                 '1 2 3 4 5 6 7 8 9 0 {bksp}',
                 'q w e r t y u i o p',
                 'a s d f g h j k l {enter}',
-                '{layer} z x c v b n m . {arrowup} {arrowdown}',
-                '{space}',
+                '{layer} z x c v b n m {arrowup} {arrowdown}',
+                '\\ {space} .',
               ],
               shift: [
                 '! @ # $ % ^ & * - _ {bksp}',
                 'Q W E R T Y U I O P',
                 'A S D F G H J K L {enter}',
-                '{layer} Z X C V B N M , {arrowup} {arrowdown}',
-                '{space}',
+                '{layer} Z X C V B N M {arrowup} {arrowdown}',
+                '/ {space} .',
               ],
             },
             display: {
@@ -369,6 +377,10 @@
               '{arrowup}': '\u2191',
               '{arrowdown}': '\u2193',
             },
+            buttonTheme: [
+              { class: 'lazymin-key-space', buttons: '{space}' },
+              { class: 'lazymin-key-punct', buttons: '\\ / .' },
+            ],
             onKeyPress: oskOnKeyPress,
             preventMouseDownDefault: true,
           });
